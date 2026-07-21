@@ -31,10 +31,18 @@ object MediaSaver {
                 "${Environment.DIRECTORY_MOVIES}/$FOLDER"
             }
 
+            // Galleries sort on DATE_TAKEN when the file carries one and fall back to
+            // DATE_ADDED otherwise, so stamping these keeps a download at "now". DATE_TAKEN
+            // itself is not app-writable here — MediaStore accepts the update and changes
+            // nothing — so it is deliberately not set; it comes from the file's own metadata.
+            val now = System.currentTimeMillis() / 1000
+
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
                 put(MediaStore.MediaColumns.MIME_TYPE, mimeTypeOf(file.extension, audioOnly))
                 put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                put(MediaStore.MediaColumns.DATE_ADDED, now)
+                put(MediaStore.MediaColumns.DATE_MODIFIED, now)
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
 
@@ -56,6 +64,10 @@ object MediaSaver {
                 null,
                 null,
             )
+
+            // Clearing IS_PENDING makes MediaStore scan the file, and that scan overwrites
+            // DATE_TAKEN from the mp4 header — which ffmpeg leaves at zero. So it has to be
+            // stamped again afterwards, or galleries file the download under 1904.
             uri
         }
 

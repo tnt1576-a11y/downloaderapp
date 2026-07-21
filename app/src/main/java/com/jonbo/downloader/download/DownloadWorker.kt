@@ -36,6 +36,10 @@ class DownloadWorker(
     private val title get() = inputData.getString(KEY_TITLE).orEmpty().ifBlank { "Video" }
     private val audioOnly get() = inputData.getBoolean(KEY_AUDIO_ONLY, false)
 
+    /** Whatever yt-dlp said about not being able to merge, if anything. */
+    @Volatile
+    private var mergeWarning: String? = null
+
     override suspend fun getForegroundInfo(): ForegroundInfo = foregroundInfo(0f)
 
     override suspend fun doWork(): Result {
@@ -51,10 +55,24 @@ class DownloadWorker(
             Ytdlp.ensureReady(applicationContext)
             runDownload(url, selector, workDir)
 
-            val produced = workDir.walkTopDown()
+            val files = workDir.walkTopDown()
                 .filter { it.isFile && it.extension != "part" }
-                .maxByOrNull { it.length() }
-                ?: error("yt-dlp finished but produced no file")
+                .toList()
+            if (files.isEmpty()) error("yt-dlp finished but produced no file")
+
+            // A successful merge deletes the separate streams and leaves exactly one file.
+            // If ffmpeg is missing yt-dlp only warns, skips merging and still exits 0 — and
+            // picking the largest leftover would hand back a video with no audio. Fail loudly
+            // instead of silently saving something broken.
+            if (inputData.getBoolean(KEY_MERGE, false) && !audioOnly && files.size > 1) {
+                error(
+                    "Could not combine the video and audio tracks" +
+                        (mergeWarning?.let { ": $it" } ?: " (ffmpeg did not run)") +
+                        ". Nothing was saved."
+                )
+            }
+
+            val produced = files.maxByOrNull { it.length() }!!
 
             val uri = MediaSaver.publish(applicationContext, produced, audioOnly)
             notifyFinished(uri)
@@ -97,7 +115,14 @@ class DownloadWorker(
                         lastShownPercent = rounded
                         runCatching { notifier.notify(notificationId, buildNotification(percent)) }
                     }
-                    if (line.isNotBlank()) Log.v(TAG, line)
+                    if (line.isNotBlank()) {
+                        Log.v(TAG, line)
+                        // yt-dlp only WARNs when it cannot merge, so keep the reason around
+                        // to put in the error the user actually sees.
+                        if (MERGE_TROUBLE.containsMatchIn(line)) {
+                            mergeWarning = line.trim().removePrefix("WARNING:").trim().take(200)
+                        }
+                    }
                 }
             }
         } catch (e: InterruptedException) {
@@ -162,6 +187,10 @@ class DownloadWorker(
 
     companion object {
         private const val TAG = "DownloadWorker"
+
+        /** Lines yt-dlp emits when the merge step cannot run. */
+        private val MERGE_TROUBLE =
+            Regex("""ffmpeg|ffprobe|won't be merged|not be merged|not installed""", RegexOption.IGNORE_CASE)
 
         const val TAG_DOWNLOAD = "download"
 

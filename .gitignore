@@ -20,5 +20,11 @@ keystore.properties
 *.aab
 *.aar
 
+# Sample media dropped in for debugging
+*.mp4
+*.m4a
+*.webm
+*.mkv
+
 .DS_Store
 Thumbs.db
