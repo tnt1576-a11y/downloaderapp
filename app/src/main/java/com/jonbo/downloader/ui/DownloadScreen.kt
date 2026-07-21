@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -150,6 +151,9 @@ fun DownloadScreen(
 
                 is FetchState.Ready -> {
                     item { VideoCard(state.details) }
+                    if (!state.details.hasAudio) {
+                        item { NoAudioCard() }
+                    }
                     item {
                         Text(
                             if (picksQuality) "Choose a quality" else "Ready",
@@ -170,6 +174,43 @@ fun DownloadScreen(
                     onRetry = onRetry,
                     onClearFinished = onClearFinished,
                     modifier = Modifier.padding(top = 16.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Shown when the site offered no audio stream. Usually the post is genuinely silent, but it
+ * also happens when music is licensed per-region — the same link can come back with audio from
+ * a different network or VPN exit.
+ */
+@Composable
+private fun NoAudioCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+        ),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.VolumeOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            Column(Modifier.padding(start = 12.dp)) {
+                Text(
+                    "This will download without sound",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Text(
+                    "The site served no audio for this post. If it should have music, try " +
+                        "again on a different network or VPN region — audio is often " +
+                        "restricted by country.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
                 )
             }
         }

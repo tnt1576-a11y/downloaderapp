@@ -33,6 +33,8 @@ data class VideoDetails(
     val uploader: String?,
     val durationSeconds: Int,
     val options: List<QualityOption>,
+    /** False when the site served no audio stream at all — worth saying so before downloading. */
+    val hasAudio: Boolean,
 )
 
 /** yt-dlp reports a missing stream as the literal string "none". */
@@ -72,6 +74,7 @@ object VideoInfoRepo {
             } else {
                 listOf(bestOption(hasAudio(info)))
             },
+            hasAudio = hasAudio(info),
         )
     }
 

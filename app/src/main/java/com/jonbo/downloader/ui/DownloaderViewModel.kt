@@ -61,7 +61,8 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         engineVersion = Ytdlp.installedVersion(app)
-        engineDetail = Ytdlp.ffmpegStatus(app)
+        // ffmpegStatus waits for init, so it has to run off the main thread.
+        viewModelScope.launch { engineDetail = Ytdlp.ffmpegStatus(getApplication()) }
     }
 
     fun updateEngine() {

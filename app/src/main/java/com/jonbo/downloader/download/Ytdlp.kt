@@ -44,19 +44,17 @@ object Ytdlp {
     /**
      * Whether the ffmpeg binary yt-dlp shells out to is actually present. Without it yt-dlp
      * silently skips merging separate video and audio streams, so this is worth showing.
+     *
+     * Calls [ensureReady] first: the ffmpeg package is unpacked during init, so reading this
+     * before init has run would always report "not unpacked".
      */
-    fun ffmpegStatus(context: Context): String = runCatching {
-        val binary = java.io.File(context.applicationInfo.nativeLibraryDir, "libffmpeg.so")
-        val unpacked = java.io.File(
-            context.noBackupFilesDir,
-            "youtubedl-android/packages/ffmpeg",
-        )
-        when {
-            !binary.exists() -> "ffmpeg missing (${binary.parentFile?.name})"
-            !unpacked.exists() -> "ffmpeg not unpacked"
-            else -> "ffmpeg ready"
-        }
-    }.getOrElse { "ffmpeg unknown: ${it.message}" }
+    suspend fun ffmpegStatus(context: Context): String {
+        runCatching { ensureReady(context) }
+        return runCatching {
+            val binary = java.io.File(context.applicationInfo.nativeLibraryDir, "libffmpeg.so")
+            if (binary.exists()) "ffmpeg ready" else "ffmpeg missing"
+        }.getOrElse { "ffmpeg unknown: ${it.message}" }
+    }
 
     sealed interface UpdateResult {
         data class Updated(val version: String?) : UpdateResult
