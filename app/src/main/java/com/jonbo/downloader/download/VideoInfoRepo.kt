@@ -35,6 +35,9 @@ private fun String?.isNone(): Boolean = this == null || isBlank() || this == "no
 /** Wraps `yt-dlp --dump-json` and turns the raw format list into something pickable. */
 object VideoInfoRepo {
 
+    /** Above this we're paying for surround audio nobody wants on a phone. */
+    private const val MAX_AUDIO_KBPS = 140
+
     suspend fun fetch(context: Context, url: String, source: Source): VideoDetails {
         Ytdlp.ensureReady(context)
 
@@ -66,10 +69,8 @@ object VideoInfoRepo {
     private fun buildQualityOptions(info: VideoInfo): List<QualityOption> {
         val formats = info.formats.orEmpty()
 
-        // Best audio stream to pair with video-only renditions (everything above 720p on YouTube).
-        val bestAudio = formats
-            .filter { it.vcodec.isNone() && !it.acodec.isNone() }
-            .maxByOrNull { it.tbr + if (it.ext == "m4a") 100_000 else 0 }
+        // Audio stream to pair with video-only renditions (everything above 720p on YouTube).
+        val bestAudio = pickAudio(formats)
 
         val perResolution = formats
             .filter { it.height > 0 && !it.vcodec.isNone() }
@@ -115,6 +116,25 @@ object VideoInfoRepo {
         if (perResolution.isEmpty()) return listOfNotNull(bestOption(), audioOnly)
 
         return listOf(bestOption()) + perResolution + listOfNotNull(audioOnly)
+    }
+
+    /**
+     * Picks the audio track to merge with video-only streams.
+     *
+     * Deliberately not "highest bitrate": YouTube also serves ~384kbps surround tracks, and
+     * taking those made a 144p download 29MB of audio against 4MB of video. Stereo ~128kbps
+     * is plenty next to a phone-sized picture, so take the best track at or below that and
+     * only go higher when nothing smaller exists.
+     */
+    private fun pickAudio(formats: List<VideoFormat>): VideoFormat? {
+        val audio = formats.filter { it.vcodec.isNone() && !it.acodec.isNone() }
+        if (audio.isEmpty()) return null
+
+        // m4a/AAC plays everywhere; fall back to whatever the site offers.
+        val preferred = audio.filter { it.ext == "m4a" }.ifEmpty { audio }
+
+        return preferred.filter { it.tbr in 1..MAX_AUDIO_KBPS }.maxByOrNull { it.tbr }
+            ?: preferred.minByOrNull { if (it.tbr > 0) it.tbr else Int.MAX_VALUE }
     }
 
     /** Prefer widely-playable mp4/avc over the same resolution in vp9/av1, then higher bitrate. */

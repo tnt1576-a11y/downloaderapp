@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -92,6 +93,14 @@ private fun DownloadRow(item: DownloadItem, onCancel: (UUID) -> Unit) {
                             Icons.Default.ErrorOutline,
                             contentDescription = "Failed",
                             tint = MaterialTheme.colorScheme.error,
+                        )
+
+                    // Already stopped — offering "cancel" again would be misleading.
+                    DownloadItem.Status.CANCELLED ->
+                        Icon(
+                            Icons.Default.Block,
+                            contentDescription = "Cancelled",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
 
                     else -> IconButton(onClick = { onCancel(item.id) }) {
