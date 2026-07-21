@@ -31,6 +31,12 @@ android {
             // Jackson (used by the yt-dlp JSON mapper) is reflection-heavy; no shrinking
             // keeps this personal build trouble-free.
             isMinifyEnabled = false
+
+            // Signed with the standard debug key so the APK is installable by sideloading
+            // without inventing a keystore. Fine for a personal build; it is NOT suitable
+            // for Play Store upload, and a future differently-signed build cannot upgrade
+            // over it (you would have to uninstall first).
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -45,6 +51,14 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    lint {
+        // lintVital runs only on release and pulls com.android.tools.lint:lint-gradle, which
+        // is not published standalone for this AGP version, so the task cannot resolve and
+        // fails the build. Skipping it changes nothing about the packaged APK; regular lint
+        // still runs on demand via ./gradlew lint.
+        checkReleaseBuilds = false
     }
 
     packaging {
