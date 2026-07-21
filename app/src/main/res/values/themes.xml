@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Compose draws everything; this only needs to be a transparent-bar, no-title shell.
+      There is no android:Theme.DeviceDefault.DayNight.NoActionBar, so day/night are split
+      across values/ and values-night/ instead.
+    -->
+    <style name="Theme.Downloader" parent="android:Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+</resources>

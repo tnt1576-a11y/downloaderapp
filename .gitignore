@@ -1,0 +1,24 @@
+# Build output — note the trailing slash: this matches app/build too, not just ./build
+build/
+.gradle/
+.cxx/
+.externalNativeBuild/
+/captures
+
+# Local machine config (contains your SDK path)
+local.properties
+*.iml
+.idea/
+
+# Signing material — never commit these
+*.jks
+*.keystore
+keystore.properties
+
+# Artifacts
+*.apk
+*.aab
+*.aar
+
+.DS_Store
+Thumbs.db
