@@ -36,6 +36,41 @@ enum class Source(
         hint = "Paste a TikTok video link",
         pickQuality = true,
         hosts = listOf("tiktok.com"),
+    ),
+    REDDIT(
+        key = "reddit",
+        label = "Reddit",
+        hint = "Paste a Reddit post link",
+        pickQuality = true,
+        hosts = listOf("reddit.com", "redd.it"),
+    ),
+    FACEBOOK(
+        key = "facebook",
+        label = "Facebook",
+        hint = "Paste a Facebook video or Reel link",
+        pickQuality = true,
+        hosts = listOf("facebook.com", "fb.watch", "fb.com"),
+    ),
+    TWITCH(
+        key = "twitch",
+        label = "Twitch",
+        hint = "Paste a Twitch clip or VOD link",
+        pickQuality = true,
+        hosts = listOf("twitch.tv", "clips.twitch.tv"),
+    ),
+    VIMEO(
+        key = "vimeo",
+        label = "Vimeo",
+        hint = "Paste a Vimeo video link",
+        pickQuality = true,
+        hosts = listOf("vimeo.com"),
+    ),
+    SOUNDCLOUD(
+        key = "soundcloud",
+        label = "SoundCloud",
+        hint = "Paste a SoundCloud track link",
+        pickQuality = false,
+        hosts = listOf("soundcloud.com", "snd.sc"),
     );
 
     fun matches(url: String): Boolean {

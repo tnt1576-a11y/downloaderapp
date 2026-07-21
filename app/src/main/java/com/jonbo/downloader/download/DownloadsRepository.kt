@@ -25,6 +25,10 @@ data class DownloadItem(
     val title: String,
     val thumbnail: String?,
     val progress: Float,
+    /** Live transfer rate, e.g. "4.61MiB/s". Empty unless the download is running. */
+    val speed: String,
+    /** Remaining time as yt-dlp reports it, e.g. "00:27". */
+    val eta: String,
     val state: Status,
     val uri: String?,
     val error: String?,
@@ -42,7 +46,13 @@ class DownloadsRepository(context: Context) {
 
     private val workManager = WorkManager.getInstance(context)
 
-    fun enqueue(url: String, title: String, option: QualityOption, thumbnail: String?): UUID {
+    fun enqueue(
+        url: String,
+        title: String,
+        option: QualityOption,
+        thumbnail: String?,
+        mp3: Boolean = false,
+    ): UUID {
         val request = OneTimeWorkRequestBuilder<DownloadWorker>()
             .setInputData(
                 workDataOf(
@@ -52,6 +62,9 @@ class DownloadsRepository(context: Context) {
                     DownloadWorker.KEY_MERGE to option.needsMerge,
                     DownloadWorker.KEY_AUDIO_ONLY to option.audioOnly,
                     DownloadWorker.KEY_EXPECT_AUDIO to option.expectsAudio,
+                    DownloadWorker.KEY_THUMB to thumbnail,
+                    DownloadWorker.KEY_LABEL to option.label,
+                    DownloadWorker.KEY_MP3 to (mp3 && option.audioOnly),
                 )
             )
             .setConstraints(
@@ -131,6 +144,8 @@ class DownloadsRepository(context: Context) {
             title = title,
             thumbnail = thumbnail,
             progress = info.progress.getFloat(DownloadWorker.KEY_PROGRESS, 0f),
+            speed = info.progress.getString(DownloadWorker.KEY_SPEED).orEmpty(),
+            eta = info.progress.getString(DownloadWorker.KEY_ETA).orEmpty(),
             state = when (info.state) {
                 WorkInfo.State.RUNNING -> DownloadItem.Status.RUNNING
                 WorkInfo.State.SUCCEEDED -> DownloadItem.Status.DONE

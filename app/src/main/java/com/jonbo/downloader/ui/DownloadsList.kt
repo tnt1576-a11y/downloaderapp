@@ -303,8 +303,20 @@ private fun shareMedia(context: Context, uri: String, mime: String) {
 
 private fun statusLine(item: DownloadItem): String = when (item.state) {
     DownloadItem.Status.QUEUED -> "Queued"
-    DownloadItem.Status.RUNNING ->
-        if (item.progress > 0f) "${item.progress.roundToInt()}%" else "Preparing…"
+    DownloadItem.Status.RUNNING -> {
+        if (item.progress <= 0f) {
+            "Preparing…"
+        } else {
+            // e.g. "42% · 4.6MiB/s · 0:27 left"
+            listOfNotNull(
+                "${item.progress.roundToInt()}%",
+                item.speed.takeIf { it.isNotBlank() },
+                item.eta.takeIf { it.isNotBlank() && it != "00:00" }
+                    ?.let { it.trimStart('0').let { t -> if (t.startsWith(":")) "0$t" else t } }
+                    ?.let { "$it left" },
+            ).joinToString(" · ")
+        }
+    }
 
     DownloadItem.Status.DONE -> "Saved · tap to play"
     DownloadItem.Status.CANCELLED -> "Cancelled"

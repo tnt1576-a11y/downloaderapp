@@ -34,9 +34,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,7 +47,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.jonbo.downloader.Source
+import com.jonbo.downloader.extractUrl
 import com.jonbo.downloader.download.DownloadItem
+import com.jonbo.downloader.download.PlaylistDetails
 import com.jonbo.downloader.download.QualityOption
 import com.jonbo.downloader.download.VideoDetails
 import com.jonbo.downloader.download.VideoInfoRepo
@@ -65,9 +69,17 @@ fun DownloadScreen(
     onCancel: (UUID) -> Unit,
     onRetry: (DownloadItem) -> Unit,
     onClearFinished: () -> Unit,
+    onTryAnyway: () -> Unit,
+    onDownloadPlaylist: (PlaylistDetails) -> Unit,
     onBack: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
+    // Offer whatever link is already on the clipboard, so pasting is one tap.
+    val clipboardLink = remember(url) {
+        if (url.isNotBlank()) null
+        else extractUrl(clipboard.getText()?.text)?.takeIf { Source.detect(it) != null }
+    }
+
     val title = source?.label ?: "Any link"
     val hint = source?.hint ?: "Paste a link from YouTube, Instagram, X or TikTok"
     val picksQuality = source?.pickQuality ?: true
@@ -117,6 +129,22 @@ fun DownloadScreen(
                 )
             }
 
+            if (clipboardLink != null) {
+                item {
+                    SuggestionChip(
+                        onClick = { onUrlChange(clipboardLink) },
+                        label = {
+                            Text(
+                                "Use copied link: $clipboardLink",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                        icon = { Icon(Icons.Default.ContentPaste, contentDescription = null) },
+                    )
+                }
+            }
+
             item {
                 Button(
                     onClick = onFetch,
@@ -149,6 +177,14 @@ fun DownloadScreen(
 
                 is FetchState.Error -> item { ErrorCard(state.message) }
 
+                is FetchState.Unsupported -> item {
+                    UnsupportedCard(state.message, onTryAnyway)
+                }
+
+                is FetchState.Playlist -> item {
+                    PlaylistCard(state.details, onDownloadPlaylist)
+                }
+
                 is FetchState.Ready -> {
                     item { VideoCard(state.details) }
                     if (!state.details.hasAudio) {
@@ -174,6 +210,87 @@ fun DownloadScreen(
                     onRetry = onRetry,
                     onClearFinished = onClearFinished,
                     modifier = Modifier.padding(top = 16.dp),
+                )
+            }
+        }
+    }
+}
+
+/** An unlisted site: yt-dlp knows well over a thousand, so offer to try rather than refuse. */
+@Composable
+private fun UnsupportedCard(message: String, onTryAnyway: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+        ),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            Button(
+                onClick = onTryAnyway,
+                modifier = Modifier.padding(top = 10.dp),
+            ) { Text("Try it anyway") }
+        }
+    }
+}
+
+/** A playlist link: offer the whole thing at once rather than one video. */
+@Composable
+private fun PlaylistCard(details: PlaylistDetails, onDownloadAll: (PlaylistDetails) -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+        ),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                details.title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "${details.entries.size} videos · they'll download one after another at best " +
+                    "quality",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+
+            details.entries.take(3).forEach {
+                Text(
+                    "• ${it.title}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            if (details.entries.size > 3) {
+                Text(
+                    "…and ${details.entries.size - 3} more",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+
+            Button(
+                onClick = { onDownloadAll(details) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+            ) {
+                Icon(Icons.Default.Download, contentDescription = null)
+                Text(
+                    "Download all ${details.entries.size}",
+                    modifier = Modifier.padding(start = 8.dp),
                 )
             }
         }

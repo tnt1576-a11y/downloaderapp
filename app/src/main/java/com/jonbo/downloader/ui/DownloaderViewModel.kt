@@ -6,10 +6,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.jonbo.downloader.Settings
 import com.jonbo.downloader.Source
 import com.jonbo.downloader.download.DownloadItem
 import com.jonbo.downloader.download.DownloadsRepository
+import com.jonbo.downloader.download.FriendlyError
+import com.jonbo.downloader.download.HistoryEntry
+import com.jonbo.downloader.download.HistoryStore
+import com.jonbo.downloader.download.PlaylistDetails
+import com.jonbo.downloader.download.PlaylistRepo
 import com.jonbo.downloader.download.QualityOption
+import com.jonbo.downloader.download.StorageInfo
+import com.jonbo.downloader.download.StorageUsage
 import com.jonbo.downloader.download.VideoDetails
 import com.jonbo.downloader.download.VideoInfoRepo
 import com.jonbo.downloader.download.Ytdlp
@@ -24,11 +32,27 @@ sealed interface FetchState {
     data object Loading : FetchState
     data class Error(val message: String) : FetchState
     data class Ready(val details: VideoDetails) : FetchState
+
+    /** The link isn't from a site we list, but yt-dlp may still know it. */
+    data class Unsupported(val message: String) : FetchState
+
+    data class Playlist(val details: PlaylistDetails) : FetchState
 }
 
 class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo = DownloadsRepository(app)
+
+    val settings = Settings(app)
+
+    val history = HistoryStore.entries
+
+    var storage by mutableStateOf(StorageUsage(0, 0))
+        private set
+
+    /** Non-null when the running engine is old enough to start breaking sites. */
+    var engineStaleDays by mutableStateOf<Long?>(null)
+        private set
 
     val downloads = repo.downloads.stateIn(
         viewModelScope,
@@ -61,8 +85,46 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         engineVersion = Ytdlp.installedVersion(app)
+        refreshStaleness()
+        HistoryStore.load(app)
         // ffmpegStatus waits for init, so it has to run off the main thread.
         viewModelScope.launch { engineDetail = Ytdlp.ffmpegStatus(getApplication()) }
+        refreshStorage()
+    }
+
+    fun refreshStorage() {
+        viewModelScope.launch { storage = StorageInfo.measure(getApplication()) }
+    }
+
+    private fun refreshStaleness() {
+        // The bundled engine has no recorded version, and is by definition the oldest one.
+        val age = Ytdlp.engineAgeDays(engineVersion)
+        engineStaleDays = when {
+            engineVersion == null -> Long.MAX_VALUE
+            age != null && age > STALE_AFTER_DAYS -> age
+            else -> null
+        }
+    }
+
+    fun deleteHistoryEntry(entry: HistoryEntry, alsoFile: Boolean) {
+        viewModelScope.launch {
+            if (alsoFile) {
+                HistoryStore.deleteFile(getApplication(), entry)
+            } else {
+                HistoryStore.remove(getApplication(), entry.id)
+            }
+            refreshStorage()
+        }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch { HistoryStore.clear(getApplication()) }
+    }
+
+    /** Re-runs a past download from the history screen. */
+    fun redownload(entry: HistoryEntry) {
+        url = entry.url
+        fetchState = FetchState.Idle
     }
 
     fun updateEngine() {
@@ -73,7 +135,13 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
             engineMessage = when (val result = Ytdlp.update(getApplication())) {
                 is Ytdlp.UpdateResult.Updated -> {
                     engineVersion = result.version
-                    "Updated to ${result.version ?: "latest"}"
+                    refreshStaleness()
+                    if (result.verified) {
+                        "Updated to ${result.version ?: "latest"} · checksum verified"
+                    } else {
+                        "Updated to ${result.version ?: "latest"}, but the checksum could not " +
+                            "be verified against yt-dlp's published list."
+                    }
                 }
 
                 Ytdlp.UpdateResult.AlreadyCurrent -> "Already up to date"
@@ -115,8 +183,12 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
         fetch(source)
     }
 
-    /** [source] is null on the auto-detect screen, where the site comes from the link itself. */
-    fun fetch(source: Source?) {
+    /**
+     * [source] is null on the auto-detect screen, where the site comes from the link itself.
+     * [force] runs an unrecognised link through yt-dlp anyway — it knows far more sites than
+     * the app lists.
+     */
+    fun fetch(source: Source?, force: Boolean = false) {
         val target = url.trim()
         if (target.isEmpty()) {
             fetchState = FetchState.Error("Paste a link first")
@@ -124,10 +196,10 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         val resolved = source ?: Source.detect(target)
-        if (resolved == null) {
-            fetchState = FetchState.Error(
-                "That link isn't from a supported site. " +
-                    Source.entries.joinToString(", ") { it.label } + " are supported."
+        if (resolved == null && !force) {
+            fetchState = FetchState.Unsupported(
+                "That link isn't from one of the listed sites, but the engine supports over a " +
+                    "thousand others."
             )
             return
         }
@@ -136,11 +208,38 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
         fetchState = FetchState.Loading
         fetchJob = viewModelScope.launch {
             fetchState = try {
-                FetchState.Ready(VideoInfoRepo.fetch(getApplication(), target, resolved))
+                if (PlaylistRepo.looksLikePlaylist(target)) {
+                    val playlist = PlaylistRepo.fetch(getApplication(), target)
+                    // A "list=" link can still point at a single video.
+                    if (playlist.entries.size > 1) {
+                        FetchState.Playlist(playlist)
+                    } else {
+                        FetchState.Ready(single(target, resolved))
+                    }
+                } else {
+                    FetchState.Ready(single(target, resolved))
+                }
             } catch (e: Exception) {
                 FetchState.Error(readableError(e))
             }
         }
+    }
+
+    private suspend fun single(target: String, resolved: Source?) =
+        VideoInfoRepo.fetch(getApplication(), target, resolved ?: Source.YOUTUBE)
+
+    /** Queues every entry in a playlist at best quality. */
+    fun downloadPlaylist(details: PlaylistDetails) {
+        val option = QualityOption(
+            label = "Best available",
+            detail = "",
+            selector = "bestvideo*+bestaudio/best",
+            needsMerge = true,
+        )
+        details.entries.forEach { entry ->
+            repo.enqueue(entry.url, entry.title, option, entry.thumbnail, settings.mp3Audio.value)
+        }
+        reset()
     }
 
     fun retry(item: DownloadItem) {
@@ -149,8 +248,39 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
 
     fun download(option: QualityOption) {
         val details = (fetchState as? FetchState.Ready)?.details ?: return
-        repo.enqueue(details.url, details.title, option, details.thumbnail)
+        repo.enqueue(details.url, details.title, option, details.thumbnail, settings.mp3Audio.value)
         reset()
+    }
+
+    /**
+     * Shared-link path. When a default quality is set, this queues the download immediately
+     * and reports true so the caller can stay out of the way.
+     */
+    fun quickDownload(link: String, source: Source?): Boolean {
+        val action = settings.shareAction.value
+        val selector = action.selector ?: return false
+
+        viewModelScope.launch {
+            val details = runCatching {
+                VideoInfoRepo.fetch(getApplication(), link, source ?: Source.YOUTUBE)
+            }.getOrNull()
+
+            repo.enqueue(
+                url = link,
+                title = details?.title ?: "Video",
+                option = QualityOption(
+                    label = action.label,
+                    detail = "",
+                    selector = selector,
+                    needsMerge = !action.audioOnly,
+                    audioOnly = action.audioOnly,
+                    expectsAudio = details?.hasAudio ?: true,
+                ),
+                thumbnail = details?.thumbnail,
+                mp3 = settings.mp3Audio.value,
+            )
+        }
+        return true
     }
 
     fun cancel(id: UUID) = repo.cancel(id)
@@ -163,11 +293,10 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
         fetchState = FetchState.Idle
     }
 
-    private fun readableError(e: Exception): String {
-        val raw = e.message.orEmpty()
-        val line = raw.lineSequence().lastOrNull { it.contains("ERROR:") }
-            ?: raw.lineSequence().lastOrNull { it.isNotBlank() }
-            ?: "Could not read that link"
-        return line.substringAfter("ERROR:").trim().take(300)
+    private fun readableError(e: Exception): String = FriendlyError.of(e.message)
+
+    private companion object {
+        /** yt-dlp releases weekly-ish; past this, sites start breaking. */
+        const val STALE_AFTER_DAYS = 70L
     }
 }

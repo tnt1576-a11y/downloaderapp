@@ -42,6 +42,12 @@ class DownloadWorker(
     @Volatile
     private var mergeWarning: String? = null
 
+    @Volatile
+    private var speed: String = ""
+
+    @Volatile
+    private var eta: String = ""
+
     override suspend fun getForegroundInfo(): ForegroundInfo = foregroundInfo(0f)
 
     override suspend fun doWork(): Result {
@@ -78,6 +84,21 @@ class DownloadWorker(
             }
 
             val uri = MediaSaver.publish(applicationContext, produced, audioOnly)
+
+            HistoryStore.add(
+                applicationContext,
+                HistoryEntry(
+                    id = id.toString(),
+                    title = title,
+                    url = url,
+                    thumbnail = inputData.getString(KEY_THUMB),
+                    uri = uri.toString(),
+                    savedAt = System.currentTimeMillis(),
+                    audioOnly = audioOnly,
+                    quality = inputData.getString(KEY_LABEL).orEmpty(),
+                ),
+            )
+
             notifyFinished(uri)
 
             Result.success(workDataOf(KEY_TITLE to title, KEY_URI to uri.toString()))
@@ -125,6 +146,15 @@ class DownloadWorker(
             if (inputData.getBoolean(KEY_MERGE, false) && !audioOnly) {
                 addOption("--merge-output-format", "mp4")
             }
+            // Music mode: hand back an mp3 that looks right in a music player, with the
+            // video's own thumbnail as cover art and the title/artist filled in.
+            if (audioOnly && inputData.getBoolean(KEY_MP3, false)) {
+                addOption("--extract-audio")
+                addOption("--audio-format", "mp3")
+                addOption("--audio-quality", "0")
+                addOption("--embed-thumbnail")
+                addOption("--add-metadata")
+            }
         }
 
         var lastShownPercent = -1
@@ -132,7 +162,19 @@ class DownloadWorker(
             runInterruptible(Dispatchers.IO) {
                 YoutubeDL.getInstance().execute(request, id.toString()) { progress, _, line ->
                     val percent = progress.coerceIn(0f, 100f)
-                    setProgressAsync(workDataOf(KEY_TITLE to title, KEY_PROGRESS to percent))
+
+                    // yt-dlp prints e.g. "[download] 12.5% of 143.55MiB at 4.61MiB/s ETA 00:27".
+                    SPEED.find(line)?.let { speed = it.groupValues[1] }
+                    ETA.find(line)?.let { eta = it.groupValues[1] }
+
+                    setProgressAsync(
+                        workDataOf(
+                            KEY_TITLE to title,
+                            KEY_PROGRESS to percent,
+                            KEY_SPEED to speed,
+                            KEY_ETA to eta,
+                        )
+                    )
 
                     val rounded = percent.roundToInt()
                     if (rounded != lastShownPercent) {
@@ -199,18 +241,16 @@ class DownloadWorker(
         runCatching { notifier.notify(notificationId + 1, notification) }
     }
 
-    /** yt-dlp's stderr is verbose; surface the last "ERROR:" line, which is the useful bit. */
-    private fun friendlyError(e: Exception): String {
-        val raw = e.message.orEmpty()
-        val errorLine = raw.lineSequence().lastOrNull { it.contains("ERROR:") }
-        return (errorLine ?: raw.lineSequence().lastOrNull { it.isNotBlank() } ?: "Download failed")
-            .substringAfter("ERROR:")
-            .trim()
-            .take(300)
-    }
+    private fun friendlyError(e: Exception): String = FriendlyError.of(e.message)
 
     companion object {
         private const val TAG = "DownloadWorker"
+
+        const val KEY_SPEED = "speed"
+        const val KEY_ETA = "eta"
+
+        private val SPEED = Regex("""\bat\s+([\d.]+\s*[KMG]?i?B/s)""", RegexOption.IGNORE_CASE)
+        private val ETA = Regex("""\bETA\s+([\d:]+)""", RegexOption.IGNORE_CASE)
 
         /** Lines yt-dlp emits when the merge step cannot run. */
         private val MERGE_TROUBLE =
@@ -218,6 +258,9 @@ class DownloadWorker(
 
         const val TAG_DOWNLOAD = "download"
         const val KEY_EXPECT_AUDIO = "expect_audio"
+        const val KEY_THUMB = "thumbnail"
+        const val KEY_LABEL = "quality_label"
+        const val KEY_MP3 = "to_mp3"
 
         const val KEY_URL = "url"
         const val KEY_SELECTOR = "selector"
