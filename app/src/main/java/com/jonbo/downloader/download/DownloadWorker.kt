@@ -49,6 +49,22 @@ class DownloadWorker(
     private var eta: String = ""
 
     /**
+     * Smoothed transfer rate in bytes/s.
+     *
+     * yt-dlp fetches YouTube in ~10MB chunks to sidestep throttling, and each chunk is a new
+     * connection starting from TCP slow-start — so its reported rate saws between ~20KiB/s and
+     * full line speed every few seconds. Measured on one download: 0.02 → 4.3 → 0.02 → 4.1
+     * MiB/s, over and over. Showing that raw number reads as a broken connection, when the
+     * effective throughput is steady. An exponential moving average shows what's actually
+     * being achieved, which is what every browser download UI does too.
+     */
+    @Volatile
+    private var emaBytesPerSec: Double = 0.0
+
+    @Volatile
+    private var streamTotalBytes: Double = 0.0
+
+    /**
      * Which part of the work is running: "Video", "Audio", "Combining" or "Converting".
      *
      * HD downloads are two separate transfers (video stream, then audio stream), so the raw
@@ -156,6 +172,10 @@ class DownloadWorker(
             addOption("--restrict-filenames")
             addOption("--socket-timeout", "20")
             addOption("--retries", "5")
+            // Fragmented streams (Twitch VODs, HLS/DASH sites) are thousands of small files;
+            // fetching a few at once is the difference between minutes and an hour. No effect
+            // on YouTube's ranged downloads.
+            addOption("--concurrent-fragments", "4")
             if (inputData.getBoolean(KEY_MERGE, false) && !audioOnly) {
                 addOption("--merge-output-format", "mp4")
             }
@@ -177,8 +197,22 @@ class DownloadWorker(
                     val percent = progress.coerceIn(0f, 100f)
 
                     // yt-dlp prints e.g. "[download] 12.5% of 143.55MiB at 4.61MiB/s ETA 00:27".
-                    SPEED.find(line)?.let { speed = it.groupValues[1] }
-                    ETA.find(line)?.let { eta = it.groupValues[1] }
+                    SPEED.find(line)?.let {
+                        val raw = it.groupValues[1].toDouble() * unitBytes(it.groupValues[2])
+                        emaBytesPerSec = if (emaBytesPerSec <= 0) raw
+                        else EMA_WEIGHT * raw + (1 - EMA_WEIGHT) * emaBytesPerSec
+                        speed = formatRate(emaBytesPerSec)
+                    }
+                    SIZE.find(line)?.let {
+                        streamTotalBytes = it.groupValues[1].toDouble() * unitBytes(it.groupValues[2])
+                    }
+                    // ETA from the smoothed rate; yt-dlp's own swings as wildly as its speed.
+                    eta = if (emaBytesPerSec > 0 && streamTotalBytes > 0 && percent < 100f) {
+                        val remaining = streamTotalBytes * (1 - percent / 100.0)
+                        formatEta((remaining / emaBytesPerSec).toLong())
+                    } else {
+                        ""
+                    }
 
                     when {
                         // Each stream announces itself once; the first is video, the second audio.
@@ -283,8 +317,31 @@ class DownloadWorker(
         const val KEY_ETA = "eta"
         const val KEY_STAGE = "stage"
 
-        private val SPEED = Regex("""\bat\s+([\d.]+\s*[KMG]?i?B/s)""", RegexOption.IGNORE_CASE)
-        private val ETA = Regex("""\bETA\s+([\d:]+)""", RegexOption.IGNORE_CASE)
+        private val SPEED = Regex("""\bat\s+([\d.]+)\s*([KMG]?)i?B/s""", RegexOption.IGNORE_CASE)
+        private val SIZE = Regex("""\bof\s+~?([\d.]+)\s*([KMG]?)i?B\b""", RegexOption.IGNORE_CASE)
+
+        /** How quickly the average follows the raw rate; lower is smoother. */
+        private const val EMA_WEIGHT = 0.18
+
+        private fun unitBytes(unit: String): Double = when (unit.uppercase()) {
+            "K" -> 1024.0
+            "M" -> 1024.0 * 1024
+            "G" -> 1024.0 * 1024 * 1024
+            else -> 1.0
+        }
+
+        private fun formatRate(bytesPerSec: Double): String {
+            val mib = bytesPerSec / (1024 * 1024)
+            return if (mib >= 1) String.format(java.util.Locale.US, "%.1f MB/s", mib)
+            else String.format(java.util.Locale.US, "%.0f KB/s", bytesPerSec / 1024)
+        }
+
+        private fun formatEta(seconds: Long): String {
+            if (seconds <= 0 || seconds > 6 * 3600) return ""
+            val m = seconds / 60
+            val s = seconds % 60
+            return String.format(java.util.Locale.US, "%d:%02d", m, s)
+        }
 
         /** Lines yt-dlp emits when the merge step cannot run. */
         private val MERGE_TROUBLE =
