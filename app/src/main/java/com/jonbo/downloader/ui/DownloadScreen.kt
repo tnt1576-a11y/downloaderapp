@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -98,10 +99,18 @@ fun DownloadScreen(
                     placeholder = { Text(hint) },
                     singleLine = true,
                     trailingIcon = {
-                        IconButton(onClick = {
-                            clipboard.getText()?.text?.let(onUrlChange)
-                        }) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = "Paste")
+                        Row {
+                            // Only worth showing when there is something to clear.
+                            if (url.isNotEmpty()) {
+                                IconButton(onClick = { onUrlChange("") }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
+                                }
+                            }
+                            IconButton(onClick = {
+                                clipboard.getText()?.text?.let(onUrlChange)
+                            }) {
+                                Icon(Icons.Default.ContentPaste, contentDescription = "Paste")
+                            }
                         }
                     },
                 )
