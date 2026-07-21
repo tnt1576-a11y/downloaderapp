@@ -4,6 +4,8 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.util.Log
@@ -60,19 +62,20 @@ class DownloadWorker(
                 .toList()
             if (files.isEmpty()) error("yt-dlp finished but produced no file")
 
-            // A successful merge deletes the separate streams and leaves exactly one file.
-            // If ffmpeg is missing yt-dlp only warns, skips merging and still exits 0 — and
-            // picking the largest leftover would hand back a video with no audio. Fail loudly
-            // instead of silently saving something broken.
-            if (inputData.getBoolean(KEY_MERGE, false) && !audioOnly && files.size > 1) {
+            val produced = files.maxByOrNull { it.length() }!!
+
+            // Without ffmpeg yt-dlp does not fail: it warns, skips merging and exits 0,
+            // sometimes leaving both streams and sometimes falling back to a single
+            // video-only format. Counting files misses the second case, so check the actual
+            // result — a video we hand back must really contain an audio track.
+            val expectsAudio = inputData.getBoolean(KEY_EXPECT_AUDIO, true)
+            if (!audioOnly && expectsAudio && !hasAudioTrack(produced)) {
                 error(
-                    "Could not combine the video and audio tracks" +
-                        (mergeWarning?.let { ": $it" } ?: " (ffmpeg did not run)") +
+                    "The download has no audio track" +
+                        (mergeWarning?.let { ": $it" } ?: " — ffmpeg did not merge the streams") +
                         ". Nothing was saved."
                 )
             }
-
-            val produced = files.maxByOrNull { it.length() }!!
 
             val uri = MediaSaver.publish(applicationContext, produced, audioOnly)
             notifyFinished(uri)
@@ -86,6 +89,27 @@ class DownloadWorker(
         } finally {
             workDir.deleteRecursively()
             notifier.cancel(notificationId)
+        }
+    }
+
+    /**
+     * True when the file really carries an audio stream. Uses the platform extractor rather
+     * than trusting yt-dlp's exit code, which is 0 even when merging was skipped.
+     */
+    private fun hasAudioTrack(file: File): Boolean {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(file.absolutePath)
+            (0 until extractor.trackCount).any { i ->
+                extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME)
+                    ?.startsWith("audio/") == true
+            }
+        } catch (e: Exception) {
+            // Unreadable container (mkv/webm variants) — don't block a download over it.
+            Log.w(TAG, "Could not inspect tracks in ${file.name}", e)
+            true
+        } finally {
+            runCatching { extractor.release() }
         }
     }
 
@@ -193,6 +217,7 @@ class DownloadWorker(
             Regex("""ffmpeg|ffprobe|won't be merged|not be merged|not installed""", RegexOption.IGNORE_CASE)
 
         const val TAG_DOWNLOAD = "download"
+        const val KEY_EXPECT_AUDIO = "expect_audio"
 
         const val KEY_URL = "url"
         const val KEY_SELECTOR = "selector"

@@ -49,6 +49,7 @@ class DownloadsRepository(context: Context) {
                     DownloadWorker.KEY_TITLE to title,
                     DownloadWorker.KEY_MERGE to option.needsMerge,
                     DownloadWorker.KEY_AUDIO_ONLY to option.audioOnly,
+                    DownloadWorker.KEY_EXPECT_AUDIO to option.expectsAudio,
                 )
             )
             .setConstraints(
@@ -65,6 +66,7 @@ class DownloadsRepository(context: Context) {
             .addTag("$LABEL${option.label}")
             .addTag("$MERGE${option.needsMerge}")
             .addTag("$AUDIO${option.audioOnly}")
+            .addTag("$EXPECT${option.expectsAudio}")
             .build()
 
         workManager.enqueue(request)
@@ -112,6 +114,7 @@ class DownloadsRepository(context: Context) {
                     selector = selector,
                     needsMerge = info.tag(MERGE).toBoolean(),
                     audioOnly = info.tag(AUDIO).toBoolean(),
+                    expectsAudio = info.tag(EXPECT)?.toBoolean() ?: true,
                 ),
             )
         } else {
@@ -143,5 +146,6 @@ class DownloadsRepository(context: Context) {
         const val LABEL = "label:"
         const val MERGE = "merge:"
         const val AUDIO = "audio:"
+        const val EXPECT = "expect:"
     }
 }

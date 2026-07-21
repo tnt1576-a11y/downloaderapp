@@ -56,6 +56,7 @@ private fun iconFor(source: Source): ImageVector = when (source) {
 fun HomeScreen(
     downloads: List<DownloadItem>,
     engineVersion: String?,
+    engineDetail: String,
     engineUpdating: Boolean,
     engineMessage: String?,
     onOpen: (Source?) -> Unit,
@@ -118,6 +119,7 @@ fun HomeScreen(
             item {
                 EngineCard(
                     version = engineVersion,
+                    detail = engineDetail,
                     updating = engineUpdating,
                     message = engineMessage,
                     onUpdate = onUpdateEngine,
@@ -136,6 +138,7 @@ fun HomeScreen(
 @Composable
 private fun EngineCard(
     version: String?,
+    detail: String,
     updating: Boolean,
     message: String?,
     onUpdate: () -> Unit,
@@ -157,6 +160,17 @@ private fun EngineCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (detail.isNotBlank()) {
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (detail.contains("ready")) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                )
+            }
 
             if (message != null) {
                 Text(

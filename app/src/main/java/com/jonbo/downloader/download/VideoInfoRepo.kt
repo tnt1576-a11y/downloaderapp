@@ -18,6 +18,12 @@ data class QualityOption(
     val selector: String,
     val needsMerge: Boolean,
     val audioOnly: Boolean = false,
+    /**
+     * Whether the site actually offered any audio. Plenty of Reels and X posts are silent by
+     * design, so the worker must only treat a missing audio track as a failure when there
+     * was audio to be had in the first place.
+     */
+    val expectsAudio: Boolean = true,
 )
 
 data class VideoDetails(
@@ -61,19 +67,29 @@ object VideoInfoRepo {
             thumbnail = info.thumbnail,
             uploader = info.uploader,
             durationSeconds = info.duration,
-            options = if (source.pickQuality) buildQualityOptions(info) else listOf(bestOption()),
+            options = if (source.pickQuality) {
+                buildQualityOptions(info)
+            } else {
+                listOf(bestOption(hasAudio(info)))
+            },
         )
     }
 
-    private fun bestOption() = QualityOption(
+    /** Did the site offer any audio at all for this item? */
+    private fun hasAudio(info: VideoInfo): Boolean =
+        info.formats.orEmpty().any { !it.acodec.isNone() }
+
+    private fun bestOption(expectsAudio: Boolean) = QualityOption(
         label = "Best available",
         detail = "Highest quality yt-dlp can find",
         selector = "bestvideo*+bestaudio/best",
         needsMerge = true,
+        expectsAudio = expectsAudio,
     )
 
     private fun buildQualityOptions(info: VideoInfo): List<QualityOption> {
         val formats = info.formats.orEmpty()
+        val expectsAudio = hasAudio(info)
 
         // Audio stream to pair with video-only renditions (everything above 720p on YouTube).
         val bestAudio = pickAudio(formats)
@@ -101,6 +117,7 @@ object VideoInfoRepo {
                     ).joinToString(" · "),
                     selector = selector,
                     needsMerge = !hasAudio,
+                    expectsAudio = expectsAudio,
                 )
             }
             .sortedByDescending { it.label.takeWhile(Char::isDigit).toIntOrNull() ?: 0 }
@@ -119,9 +136,9 @@ object VideoInfoRepo {
         }
 
         // If the format list came back empty (rare, but possible), "best" still works.
-        if (perResolution.isEmpty()) return listOfNotNull(bestOption(), audioOnly)
+        if (perResolution.isEmpty()) return listOfNotNull(bestOption(expectsAudio), audioOnly)
 
-        return listOf(bestOption()) + perResolution + listOfNotNull(audioOnly)
+        return listOf(bestOption(expectsAudio)) + perResolution + listOfNotNull(audioOnly)
     }
 
     /**

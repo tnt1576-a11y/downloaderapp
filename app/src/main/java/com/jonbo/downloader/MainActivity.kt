@@ -90,6 +90,7 @@ private fun DownloaderApp(
             HomeScreen(
                 downloads = downloads,
                 engineVersion = viewModel.engineVersion,
+                engineDetail = viewModel.engineDetail,
                 engineUpdating = viewModel.engineUpdating,
                 engineMessage = viewModel.engineMessage,
                 onOpen = { navController.navigate(downloadRoute(it)) },

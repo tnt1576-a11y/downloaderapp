@@ -55,8 +55,13 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     private var openedFor: Source? = null
     private var fetchJob: Job? = null
 
+    /** Shown under the engine version so a broken ffmpeg is visible instead of silent. */
+    var engineDetail by mutableStateOf("")
+        private set
+
     init {
         engineVersion = Ytdlp.installedVersion(app)
+        engineDetail = Ytdlp.ffmpegStatus(app)
     }
 
     fun updateEngine() {
@@ -73,6 +78,7 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
                 Ytdlp.UpdateResult.AlreadyCurrent -> "Already up to date"
                 is Ytdlp.UpdateResult.Failed -> "Update failed: ${result.message}"
             }
+            engineDetail = Ytdlp.ffmpegStatus(getApplication())
             engineUpdating = false
         }
     }
