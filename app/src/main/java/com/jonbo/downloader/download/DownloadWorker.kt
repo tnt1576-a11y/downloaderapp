@@ -48,6 +48,19 @@ class DownloadWorker(
     @Volatile
     private var eta: String = ""
 
+    /**
+     * Which part of the work is running: "Video", "Audio", "Combining" or "Converting".
+     *
+     * HD downloads are two separate transfers (video stream, then audio stream), so the raw
+     * progress bar fills to 100% and then starts over — which reads as "it downloaded twice".
+     * Naming the phase is what makes that comprehensible.
+     */
+    @Volatile
+    private var stage: String = ""
+
+    @Volatile
+    private var streamsSeen: Int = 0
+
     override suspend fun getForegroundInfo(): ForegroundInfo = foregroundInfo(0f)
 
     override suspend fun doWork(): Result {
@@ -167,12 +180,26 @@ class DownloadWorker(
                     SPEED.find(line)?.let { speed = it.groupValues[1] }
                     ETA.find(line)?.let { eta = it.groupValues[1] }
 
+                    when {
+                        // Each stream announces itself once; the first is video, the second audio.
+                        line.contains("Destination:") -> {
+                            streamsSeen++
+                            if (inputData.getBoolean(KEY_MERGE, false) && !audioOnly) {
+                                stage = if (streamsSeen == 1) "Video" else "Audio"
+                            }
+                        }
+
+                        line.contains("[Merger]") -> stage = "Combining"
+                        line.contains("[ExtractAudio]") -> stage = "Converting"
+                    }
+
                     setProgressAsync(
                         workDataOf(
                             KEY_TITLE to title,
                             KEY_PROGRESS to percent,
                             KEY_SPEED to speed,
                             KEY_ETA to eta,
+                            KEY_STAGE to stage,
                         )
                     )
 
@@ -207,7 +234,13 @@ class DownloadWorker(
         val indeterminate = percent <= 0f
         return NotificationCompat.Builder(applicationContext, Notifications.PROGRESS_CHANNEL)
             .setContentTitle(title)
-            .setContentText(if (indeterminate) "Starting…" else "${percent.roundToInt()}%")
+            .setContentText(
+                when {
+                    indeterminate -> "Starting…"
+                    stage.isNotBlank() -> "$stage · ${percent.roundToInt()}%"
+                    else -> "${percent.roundToInt()}%"
+                }
+            )
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -248,6 +281,7 @@ class DownloadWorker(
 
         const val KEY_SPEED = "speed"
         const val KEY_ETA = "eta"
+        const val KEY_STAGE = "stage"
 
         private val SPEED = Regex("""\bat\s+([\d.]+\s*[KMG]?i?B/s)""", RegexOption.IGNORE_CASE)
         private val ETA = Regex("""\bETA\s+([\d:]+)""", RegexOption.IGNORE_CASE)

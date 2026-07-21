@@ -29,6 +29,8 @@ data class DownloadItem(
     val speed: String,
     /** Remaining time as yt-dlp reports it, e.g. "00:27". */
     val eta: String,
+    /** Which part is running: "Video", "Audio", "Combining", "Converting", or empty. */
+    val stage: String,
     val state: Status,
     val uri: String?,
     val error: String?,
@@ -146,6 +148,7 @@ class DownloadsRepository(context: Context) {
             progress = info.progress.getFloat(DownloadWorker.KEY_PROGRESS, 0f),
             speed = info.progress.getString(DownloadWorker.KEY_SPEED).orEmpty(),
             eta = info.progress.getString(DownloadWorker.KEY_ETA).orEmpty(),
+            stage = info.progress.getString(DownloadWorker.KEY_STAGE).orEmpty(),
             state = when (info.state) {
                 WorkInfo.State.RUNNING -> DownloadItem.Status.RUNNING
                 WorkInfo.State.SUCCEEDED -> DownloadItem.Status.DONE

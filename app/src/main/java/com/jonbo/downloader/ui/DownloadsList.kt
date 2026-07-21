@@ -303,19 +303,23 @@ private fun shareMedia(context: Context, uri: String, mime: String) {
 
 private fun statusLine(item: DownloadItem): String = when (item.state) {
     DownloadItem.Status.QUEUED -> "Queued"
-    DownloadItem.Status.RUNNING -> {
-        if (item.progress <= 0f) {
-            "Preparing…"
-        } else {
-            // e.g. "42% · 4.6MiB/s · 0:27 left"
-            listOfNotNull(
-                "${item.progress.roundToInt()}%",
-                item.speed.takeIf { it.isNotBlank() },
-                item.eta.takeIf { it.isNotBlank() && it != "00:00" }
-                    ?.let { it.trimStart('0').let { t -> if (t.startsWith(":")) "0$t" else t } }
-                    ?.let { "$it left" },
-            ).joinToString(" · ")
-        }
+    DownloadItem.Status.RUNNING -> when {
+        item.progress <= 0f -> "Preparing…"
+
+        // Post-download work: percentages of the transfer no longer mean anything.
+        item.stage == "Combining" -> "Combining video and audio…"
+        item.stage == "Converting" -> "Converting to MP3…"
+
+        // e.g. "Video · 42% · 4.6MiB/s · 0:27 left" — the phase label is what stops a
+        // two-stream download (video, then audio) looking like it downloaded twice.
+        else -> listOfNotNull(
+            item.stage.takeIf { it.isNotBlank() },
+            "${item.progress.roundToInt()}%",
+            item.speed.takeIf { it.isNotBlank() },
+            item.eta.takeIf { it.isNotBlank() && it != "00:00" }
+                ?.let { it.trimStart('0').let { t -> if (t.startsWith(":")) "0$t" else t } }
+                ?.let { "$it left" },
+        ).joinToString(" · ")
     }
 
     DownloadItem.Status.DONE -> "Saved · tap to play"
