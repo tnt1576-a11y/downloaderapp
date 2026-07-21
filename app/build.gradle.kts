@@ -96,6 +96,8 @@ dependencies {
 
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Pulls a representative colour out of each thumbnail to tint its download row.
+    implementation("androidx.palette:palette-ktx:1.0.0")
 
     // Bundles yt-dlp + python + ffmpeg. This pin IS the yt-dlp version: the app never updates
     // the engine at runtime, so bump these (together) and rebuild when a site stops working.

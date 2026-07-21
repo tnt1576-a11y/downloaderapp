@@ -17,11 +17,13 @@ data class DownloadRequest(
     val url: String,
     val title: String,
     val option: QualityOption,
+    val thumbnail: String?,
 )
 
 data class DownloadItem(
     val id: UUID,
     val title: String,
+    val thumbnail: String?,
     val progress: Float,
     val state: Status,
     val uri: String?,
@@ -40,7 +42,7 @@ class DownloadsRepository(context: Context) {
 
     private val workManager = WorkManager.getInstance(context)
 
-    fun enqueue(url: String, title: String, option: QualityOption): UUID {
+    fun enqueue(url: String, title: String, option: QualityOption, thumbnail: String?): UUID {
         val request = OneTimeWorkRequestBuilder<DownloadWorker>()
             .setInputData(
                 workDataOf(
@@ -67,6 +69,7 @@ class DownloadsRepository(context: Context) {
             .addTag("$MERGE${option.needsMerge}")
             .addTag("$AUDIO${option.audioOnly}")
             .addTag("$EXPECT${option.expectsAudio}")
+            .apply { if (!thumbnail.isNullOrBlank()) addTag("$THUMB$thumbnail") }
             .build()
 
         workManager.enqueue(request)
@@ -75,7 +78,7 @@ class DownloadsRepository(context: Context) {
 
     fun retry(item: DownloadItem): UUID? {
         val request = item.request ?: return null
-        return enqueue(request.url, request.title, request.option)
+        return enqueue(request.url, request.title, request.option, request.thumbnail)
     }
 
     val downloads: Flow<List<DownloadItem>> =
@@ -104,10 +107,12 @@ class DownloadsRepository(context: Context) {
 
         val url = info.tag(URL)
         val selector = info.tag(SELECTOR)
+        val thumbnail = info.tag(THUMB)
         val request = if (url != null && selector != null) {
             DownloadRequest(
                 url = url,
                 title = title,
+                thumbnail = thumbnail,
                 option = QualityOption(
                     label = info.tag(LABEL).orEmpty(),
                     detail = "",
@@ -124,6 +129,7 @@ class DownloadsRepository(context: Context) {
         return DownloadItem(
             id = info.id,
             title = title,
+            thumbnail = thumbnail,
             progress = info.progress.getFloat(DownloadWorker.KEY_PROGRESS, 0f),
             state = when (info.state) {
                 WorkInfo.State.RUNNING -> DownloadItem.Status.RUNNING
@@ -147,5 +153,6 @@ class DownloadsRepository(context: Context) {
         const val MERGE = "merge:"
         const val AUDIO = "audio:"
         const val EXPECT = "expect:"
+        const val THUMB = "thumb:"
     }
 }

@@ -149,7 +149,7 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
 
     fun download(option: QualityOption) {
         val details = (fetchState as? FetchState.Ready)?.details ?: return
-        repo.enqueue(details.url, details.title, option)
+        repo.enqueue(details.url, details.title, option, details.thumbnail)
         reset()
     }
 
