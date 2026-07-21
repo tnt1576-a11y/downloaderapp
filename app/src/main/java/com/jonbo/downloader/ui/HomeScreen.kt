@@ -3,16 +3,19 @@ package com.jonbo.downloader.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayCircleFilled
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -40,6 +43,14 @@ import com.jonbo.downloader.Source
 import com.jonbo.downloader.download.DownloadItem
 import java.util.UUID
 
+/** Tiles are generated from the enum, so a new Source shows up here automatically. */
+private fun iconFor(source: Source): ImageVector = when (source) {
+    Source.YOUTUBE -> Icons.Default.PlayCircleFilled
+    Source.INSTAGRAM -> Icons.Default.PhotoCamera
+    Source.X -> Icons.Default.Tag
+    Source.TIKTOK -> Icons.Default.MusicNote
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -47,8 +58,9 @@ fun HomeScreen(
     engineVersion: String?,
     engineUpdating: Boolean,
     engineMessage: String?,
-    onOpen: (Source) -> Unit,
+    onOpen: (Source?) -> Unit,
     onCancel: (UUID) -> Unit,
+    onRetry: (DownloadItem) -> Unit,
     onClearFinished: () -> Unit,
     onUpdateEngine: () -> Unit,
     onDismissEngineMessage: () -> Unit,
@@ -71,20 +83,25 @@ fun HomeScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // The quickest path: paste anything and let the app work out the site.
             item {
                 FunctionTile(
-                    title = "YouTube",
-                    subtitle = "Download a video, pick the quality",
-                    icon = Icons.Default.PlayCircleFilled,
-                    onClick = { onOpen(Source.YOUTUBE) },
+                    title = "Any link",
+                    subtitle = "Paste from any supported site",
+                    icon = Icons.Default.Link,
+                    primary = true,
+                    onClick = { onOpen(null) },
                 )
             }
-            item {
+
+            items(Source.entries.size) { index ->
+                val source = Source.entries[index]
                 FunctionTile(
-                    title = "Instagram",
-                    subtitle = "Download a reel or video post",
-                    icon = Icons.Default.PhotoCamera,
-                    onClick = { onOpen(Source.INSTAGRAM) },
+                    title = source.label,
+                    subtitle = source.hint.removePrefix("Paste ").replaceFirstChar { it.uppercase() },
+                    icon = iconFor(source),
+                    primary = false,
+                    onClick = { onOpen(source) },
                 )
             }
 
@@ -92,6 +109,7 @@ fun HomeScreen(
                 DownloadsSection(
                     downloads = downloads,
                     onCancel = onCancel,
+                    onRetry = onRetry,
                     onClearFinished = onClearFinished,
                     modifier = Modifier.padding(top = 12.dp),
                 )
@@ -197,40 +215,54 @@ private fun FunctionTile(
     title: String,
     subtitle: String,
     icon: ImageVector,
+    primary: Boolean,
     onClick: () -> Unit,
 ) {
     Card(
         onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(2.4f),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            containerColor = if (primary) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.secondaryContainer
+            },
         ),
     ) {
-        Column(
+        Row(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .padding(20.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
-            horizontalAlignment = Alignment.Start,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 icon,
                 contentDescription = null,
-                modifier = Modifier.padding(bottom = 4.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(32.dp),
+                tint = if (primary) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSecondaryContainer
+                },
             )
-            Column {
+            Column(Modifier.padding(start = 16.dp)) {
                 Text(
                     title,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (primary) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    },
                 )
                 Text(
                     subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (primary) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    },
                 )
             }
         }

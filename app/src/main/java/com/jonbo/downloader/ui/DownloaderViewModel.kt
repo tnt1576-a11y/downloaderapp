@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.jonbo.downloader.Source
+import com.jonbo.downloader.download.DownloadItem
 import com.jonbo.downloader.download.DownloadsRepository
 import com.jonbo.downloader.download.QualityOption
 import com.jonbo.downloader.download.VideoDetails
@@ -80,8 +81,11 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
         engineMessage = null
     }
 
-    /** Called when a download screen appears; wipes state left over from the other source. */
-    fun onScreenOpened(source: Source) {
+    /**
+     * Called when a download screen appears; wipes state left over from the other source.
+     * A null source is the auto-detect screen.
+     */
+    fun onScreenOpened(source: Source?) {
         if (openedFor != source) {
             openedFor = source
             reset()
@@ -104,21 +108,36 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
         fetch(source)
     }
 
-    fun fetch(source: Source) {
+    /** [source] is null on the auto-detect screen, where the site comes from the link itself. */
+    fun fetch(source: Source?) {
         val target = url.trim()
         if (target.isEmpty()) {
             fetchState = FetchState.Error("Paste a link first")
             return
         }
+
+        val resolved = source ?: Source.detect(target)
+        if (resolved == null) {
+            fetchState = FetchState.Error(
+                "That link isn't from a supported site. " +
+                    Source.entries.joinToString(", ") { it.label } + " are supported."
+            )
+            return
+        }
+
         fetchJob?.cancel()
         fetchState = FetchState.Loading
         fetchJob = viewModelScope.launch {
             fetchState = try {
-                FetchState.Ready(VideoInfoRepo.fetch(getApplication(), target, source))
+                FetchState.Ready(VideoInfoRepo.fetch(getApplication(), target, resolved))
             } catch (e: Exception) {
                 FetchState.Error(readableError(e))
             }
         }
+    }
+
+    fun retry(item: DownloadItem) {
+        repo.retry(item)
     }
 
     fun download(option: QualityOption) {

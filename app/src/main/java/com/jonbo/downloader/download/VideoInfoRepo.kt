@@ -32,6 +32,12 @@ data class VideoDetails(
 /** yt-dlp reports a missing stream as the literal string "none". */
 private fun String?.isNone(): Boolean = this == null || isBlank() || this == "none"
 
+/**
+ * The number people mean by "1080p": the shorter side. Portrait clips (TikTok, Reels, Shorts)
+ * are 1080x1920, and labelling those "1920p" would be wrong.
+ */
+private fun VideoFormat.qualityLines(): Int = if (width in 1 until height) width else height
+
 /** Wraps `yt-dlp --dump-json` and turns the raw format list into something pickable. */
 object VideoInfoRepo {
 
@@ -74,8 +80,8 @@ object VideoInfoRepo {
 
         val perResolution = formats
             .filter { it.height > 0 && !it.vcodec.isNone() }
-            .groupBy { it.height }
-            .mapNotNull { (height, candidates) ->
+            .groupBy { it.qualityLines() }
+            .mapNotNull { (lines, candidates) ->
                 val best = candidates.maxByOrNull(::compatibilityScore) ?: return@mapNotNull null
                 val formatId = best.formatId ?: return@mapNotNull null
                 val hasAudio = !best.acodec.isNone()
@@ -88,7 +94,7 @@ object VideoInfoRepo {
                 val bytes = sizeOf(best) + if (hasAudio) 0L else sizeOf(bestAudio)
 
                 QualityOption(
-                    label = "${height}p" + if (best.fps > 30) "${best.fps}" else "",
+                    label = "${lines}p" + if (best.fps > 30) "${best.fps}" else "",
                     detail = listOfNotNull(
                         best.ext?.uppercase(Locale.US),
                         formatBytes(bytes),

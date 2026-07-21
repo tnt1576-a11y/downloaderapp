@@ -12,6 +12,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.util.UUID
 
+/** Everything needed to run a download again, recovered from the work's tags. */
+data class DownloadRequest(
+    val url: String,
+    val title: String,
+    val option: QualityOption,
+)
+
 data class DownloadItem(
     val id: UUID,
     val title: String,
@@ -19,10 +26,14 @@ data class DownloadItem(
     val state: Status,
     val uri: String?,
     val error: String?,
+    /** Present when we can rebuild the job, which is what powers "Retry". */
+    val request: DownloadRequest?,
 ) {
     enum class Status { QUEUED, RUNNING, DONE, FAILED, CANCELLED }
 
     val isActive: Boolean get() = state == Status.QUEUED || state == Status.RUNNING
+    val canRetry: Boolean
+        get() = request != null && (state == Status.FAILED || state == Status.CANCELLED)
 }
 
 class DownloadsRepository(context: Context) {
@@ -45,13 +56,24 @@ class DownloadsRepository(context: Context) {
             )
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .addTag(DownloadWorker.TAG_DOWNLOAD)
-            // WorkInfo carries no enqueue timestamp, so smuggle one through a tag to keep the
-            // on-screen list in the order the downloads were started.
-            .addTag("$TS_TAG_PREFIX${System.currentTimeMillis()}")
+            // WorkInfo exposes tags but not input data, so the details we need for ordering
+            // and for retrying a finished job ride along as tags.
+            .addTag("$TS${System.currentTimeMillis()}")
+            .addTag("$URL$url")
+            .addTag("$TITLE$title")
+            .addTag("$SELECTOR${option.selector}")
+            .addTag("$LABEL${option.label}")
+            .addTag("$MERGE${option.needsMerge}")
+            .addTag("$AUDIO${option.audioOnly}")
             .build()
 
         workManager.enqueue(request)
         return request.id
+    }
+
+    fun retry(item: DownloadItem): UUID? {
+        val request = item.request ?: return null
+        return enqueue(request.url, request.title, request.option)
     }
 
     val downloads: Flow<List<DownloadItem>> =
@@ -62,21 +84,39 @@ class DownloadsRepository(context: Context) {
         workManager.cancelWorkById(id)
     }
 
-    /** Drops finished/failed rows from the list (they are already saved to storage). */
+    /** Drops finished/failed rows from the list (files are already saved to storage). */
     fun clearFinished() {
         workManager.pruneWork()
     }
 
-    private fun enqueuedAt(info: WorkInfo): Long =
-        info.tags.firstOrNull { it.startsWith(TS_TAG_PREFIX) }
-            ?.removePrefix(TS_TAG_PREFIX)
-            ?.toLongOrNull()
-            ?: 0L
+    private fun WorkInfo.tag(prefix: String): String? =
+        tags.firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)
+
+    private fun enqueuedAt(info: WorkInfo): Long = info.tag(TS)?.toLongOrNull() ?: 0L
 
     private fun toItem(info: WorkInfo): DownloadItem {
-        val title = info.progress.getString(DownloadWorker.KEY_TITLE)
+        val title = info.tag(TITLE)
+            ?: info.progress.getString(DownloadWorker.KEY_TITLE)
             ?: info.outputData.getString(DownloadWorker.KEY_TITLE)
             ?: "Video"
+
+        val url = info.tag(URL)
+        val selector = info.tag(SELECTOR)
+        val request = if (url != null && selector != null) {
+            DownloadRequest(
+                url = url,
+                title = title,
+                option = QualityOption(
+                    label = info.tag(LABEL).orEmpty(),
+                    detail = "",
+                    selector = selector,
+                    needsMerge = info.tag(MERGE).toBoolean(),
+                    audioOnly = info.tag(AUDIO).toBoolean(),
+                ),
+            )
+        } else {
+            null
+        }
 
         return DownloadItem(
             id = info.id,
@@ -91,10 +131,17 @@ class DownloadsRepository(context: Context) {
             },
             uri = info.outputData.getString(DownloadWorker.KEY_URI),
             error = info.outputData.getString(DownloadWorker.KEY_ERROR),
+            request = request,
         )
     }
 
     private companion object {
-        const val TS_TAG_PREFIX = "ts:"
+        const val TS = "ts:"
+        const val URL = "url:"
+        const val TITLE = "title:"
+        const val SELECTOR = "sel:"
+        const val LABEL = "label:"
+        const val MERGE = "merge:"
+        const val AUDIO = "audio:"
     }
 }

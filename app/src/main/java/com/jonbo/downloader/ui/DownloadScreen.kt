@@ -1,4 +1,4 @@
-package com.jonbo.downloader.ui
+﻿package com.jonbo.downloader.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -52,7 +52,8 @@ import java.util.UUID
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DownloadScreen(
-    source: Source,
+    /** Null on the auto-detect screen, where the site is worked out from the link. */
+    source: Source?,
     url: String,
     fetchState: FetchState,
     downloads: List<DownloadItem>,
@@ -60,15 +61,19 @@ fun DownloadScreen(
     onFetch: () -> Unit,
     onDownload: (QualityOption) -> Unit,
     onCancel: (UUID) -> Unit,
+    onRetry: (DownloadItem) -> Unit,
     onClearFinished: () -> Unit,
     onBack: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
+    val title = source?.label ?: "Any link"
+    val hint = source?.hint ?: "Paste a link from YouTube, Instagram, X or TikTok"
+    val picksQuality = source?.pickQuality ?: true
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(source.label) },
+                title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -90,7 +95,7 @@ fun DownloadScreen(
                     onValueChange = onUrlChange,
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Link") },
-                    placeholder = { Text(source.hint) },
+                    placeholder = { Text(hint) },
                     singleLine = true,
                     trailingIcon = {
                         IconButton(onClick = {
@@ -110,7 +115,7 @@ fun DownloadScreen(
                 ) {
                     Icon(Icons.Default.Download, contentDescription = null)
                     Text(
-                        text = if (source.pickQuality) "Find qualities" else "Fetch video",
+                        text = if (picksQuality) "Find qualities" else "Fetch video",
                         modifier = Modifier.padding(start = 8.dp),
                     )
                 }
@@ -138,7 +143,7 @@ fun DownloadScreen(
                     item { VideoCard(state.details) }
                     item {
                         Text(
-                            if (source.pickQuality) "Choose a quality" else "Ready",
+                            if (picksQuality) "Choose a quality" else "Ready",
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(top = 4.dp),
                         )
@@ -153,6 +158,7 @@ fun DownloadScreen(
                 DownloadsSection(
                     downloads = downloads,
                     onCancel = onCancel,
+                    onRetry = onRetry,
                     onClearFinished = onClearFinished,
                     modifier = Modifier.padding(top = 16.dp),
                 )

@@ -62,7 +62,8 @@ class MainActivity : ComponentActivity() {
 private const val ROUTE_HOME = "home"
 private const val ROUTE_DOWNLOAD = "download/{source}"
 
-private fun downloadRoute(source: Source) = "download/${source.key}"
+/** A null source routes to the auto-detect screen. */
+private fun downloadRoute(source: Source?) = "download/${source?.key ?: Source.AUTO_KEY}"
 
 @Composable
 private fun DownloaderApp(
@@ -93,6 +94,7 @@ private fun DownloaderApp(
                 engineMessage = viewModel.engineMessage,
                 onOpen = { navController.navigate(downloadRoute(it)) },
                 onCancel = viewModel::cancel,
+                onRetry = viewModel::retry,
                 onClearFinished = viewModel::clearFinished,
                 onUpdateEngine = viewModel::updateEngine,
                 onDismissEngineMessage = viewModel::dismissEngineMessage,
@@ -100,6 +102,7 @@ private fun DownloaderApp(
         }
 
         composable(ROUTE_DOWNLOAD) { entry ->
+            // Null for the "auto" key, which is the detect-from-the-link screen.
             val source = Source.fromKey(entry.arguments?.getString("source"))
             LaunchedEffect(source) { viewModel.onScreenOpened(source) }
 
@@ -112,6 +115,7 @@ private fun DownloaderApp(
                 onFetch = { viewModel.fetch(source) },
                 onDownload = viewModel::download,
                 onCancel = viewModel::cancel,
+                onRetry = viewModel::retry,
                 onClearFinished = viewModel::clearFinished,
                 onBack = { navController.popBackStack() },
             )

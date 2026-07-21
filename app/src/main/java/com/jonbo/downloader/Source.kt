@@ -1,11 +1,11 @@
 package com.jonbo.downloader
 
-/** A "function" of the app. Adding a new site later is just another entry here. */
+/** A site the app can download from. Adding another one is a single entry here. */
 enum class Source(
     val key: String,
     val label: String,
     val hint: String,
-    /** YouTube offers real quality choices; Instagram serves a single rendition. */
+    /** Sites that serve a real ladder of resolutions get a quality picker. */
     val pickQuality: Boolean,
     private val hosts: List<String>,
 ) {
@@ -14,7 +14,7 @@ enum class Source(
         label = "YouTube",
         hint = "Paste a YouTube video or Shorts link",
         pickQuality = true,
-        hosts = listOf("youtube.com", "youtu.be", "m.youtube.com", "music.youtube.com"),
+        hosts = listOf("youtube.com", "youtu.be"),
     ),
     INSTAGRAM(
         key = "instagram",
@@ -22,15 +22,34 @@ enum class Source(
         hint = "Paste a Reel or post link",
         pickQuality = false,
         hosts = listOf("instagram.com", "instagr.am", "ddinstagram.com"),
+    ),
+    X(
+        key = "x",
+        label = "X",
+        hint = "Paste a post link from X (Twitter)",
+        pickQuality = true,
+        hosts = listOf("x.com", "twitter.com", "fxtwitter.com", "vxtwitter.com"),
+    ),
+    TIKTOK(
+        key = "tiktok",
+        label = "TikTok",
+        hint = "Paste a TikTok video link",
+        pickQuality = true,
+        hosts = listOf("tiktok.com"),
     );
 
     fun matches(url: String): Boolean {
         val host = hostOf(url) ?: return false
+        // Covers subdomains too: m./music./vm./vt. all end with ".<host>".
         return hosts.any { host == it || host.endsWith(".$it") }
     }
 
     companion object {
-        fun fromKey(key: String?): Source = entries.firstOrNull { it.key == key } ?: YOUTUBE
+        /** Route key for the "figure it out from the link" screen. */
+        const val AUTO_KEY = "auto"
+
+        /** Null means the auto-detect screen rather than a specific site. */
+        fun fromKey(key: String?): Source? = entries.firstOrNull { it.key == key }
 
         fun detect(url: String): Source? = entries.firstOrNull { it.matches(url) }
 
