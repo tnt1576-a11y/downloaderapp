@@ -88,9 +88,14 @@ private fun DownloaderApp(
         composable(ROUTE_HOME) {
             HomeScreen(
                 downloads = downloads,
+                engineVersion = viewModel.engineVersion,
+                engineUpdating = viewModel.engineUpdating,
+                engineMessage = viewModel.engineMessage,
                 onOpen = { navController.navigate(downloadRoute(it)) },
                 onCancel = viewModel::cancel,
                 onClearFinished = viewModel::clearFinished,
+                onUpdateEngine = viewModel::updateEngine,
+                onDismissEngineMessage = viewModel::dismissEngineMessage,
             )
         }
 

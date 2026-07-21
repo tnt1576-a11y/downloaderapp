@@ -22,6 +22,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // The Android emulator on a PC is x86_64. AGP unions this with defaultConfig,
+            // so debug covers phone + emulator while release stays phone-only.
+            ndk { abiFilters += "x86_64" }
+        }
         release {
             // Jackson (used by the yt-dlp JSON mapper) is reflection-heavy; no shrinking
             // keeps this personal build trouble-free.

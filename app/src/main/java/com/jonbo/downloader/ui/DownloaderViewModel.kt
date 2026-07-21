@@ -11,6 +11,7 @@ import com.jonbo.downloader.download.DownloadsRepository
 import com.jonbo.downloader.download.QualityOption
 import com.jonbo.downloader.download.VideoDetails
 import com.jonbo.downloader.download.VideoInfoRepo
+import com.jonbo.downloader.download.Ytdlp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
@@ -40,8 +41,44 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     var fetchState by mutableStateOf<FetchState>(FetchState.Idle)
         private set
 
+    /** yt-dlp engine state, driven by the explicit "check for update" button on the home screen. */
+    var engineVersion by mutableStateOf<String?>(null)
+        private set
+
+    var engineUpdating by mutableStateOf(false)
+        private set
+
+    var engineMessage by mutableStateOf<String?>(null)
+        private set
+
     private var openedFor: Source? = null
     private var fetchJob: Job? = null
+
+    init {
+        engineVersion = Ytdlp.installedVersion(app)
+    }
+
+    fun updateEngine() {
+        if (engineUpdating) return
+        engineUpdating = true
+        engineMessage = null
+        viewModelScope.launch {
+            engineMessage = when (val result = Ytdlp.update(getApplication())) {
+                is Ytdlp.UpdateResult.Updated -> {
+                    engineVersion = result.version
+                    "Updated to ${result.version ?: "latest"}"
+                }
+
+                Ytdlp.UpdateResult.AlreadyCurrent -> "Already up to date"
+                is Ytdlp.UpdateResult.Failed -> "Update failed: ${result.message}"
+            }
+            engineUpdating = false
+        }
+    }
+
+    fun dismissEngineMessage() {
+        engineMessage = null
+    }
 
     /** Called when a download screen appears; wipes state left over from the other source. */
     fun onScreenOpened(source: Source) {

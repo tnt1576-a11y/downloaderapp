@@ -31,16 +31,45 @@ object Ytdlp {
             withContext(Dispatchers.IO) {
                 YoutubeDL.getInstance().init(context)
                 FFmpeg.getInstance().init(context)
-                Log.i(TAG, "engine ready, yt-dlp ${YoutubeDL.getInstance().version(context)}")
+                Log.i(TAG, "engine ready, yt-dlp ${installedVersion(context) ?: "(bundled)"}")
             }
             ready = true
         }
     }
 
+    /** Whatever yt-dlp we last pulled, or null when we're still on the APK's bundled copy. */
+    fun installedVersion(context: Context): String? =
+        runCatching { YoutubeDL.getInstance().version(context) }.getOrNull()
+
+    sealed interface UpdateResult {
+        data class Updated(val version: String?) : UpdateResult
+        data object AlreadyCurrent : UpdateResult
+        data class Failed(val message: String) : UpdateResult
+    }
+
     /**
-     * Intentionally absent: [YoutubeDL.updateYoutubeDL]. It downloads a yt-dlp binary from
-     * GitHub with no signature or checksum verification and runs it through ProcessBuilder.
-     * This app only ever executes the engine bundled in the APK, so the dependency version in
-     * app/build.gradle.kts is the single source of truth for which yt-dlp is running.
+     * Downloads the latest yt-dlp release and replaces the bundled engine.
+     *
+     * This is the one action in the app that fetches code and then executes it, and the library
+     * does NOT verify a signature or checksum on the download (transport is HTTPS to GitHub).
+     * It is therefore deliberately user-initiated only — never called on launch.
      */
+    suspend fun update(context: Context): UpdateResult {
+        ensureReady(context)
+        return withContext(Dispatchers.IO) {
+            try {
+                val status = YoutubeDL.getInstance().updateYoutubeDL(context)
+                val version = installedVersion(context)
+                Log.i(TAG, "yt-dlp update: $status -> $version")
+                if (status?.name == "ALREADY_UP_TO_DATE") {
+                    UpdateResult.AlreadyCurrent
+                } else {
+                    UpdateResult.Updated(version)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "yt-dlp update failed", e)
+                UpdateResult.Failed(e.message?.lineSequence()?.firstOrNull()?.take(200) ?: "Failed")
+            }
+        }
+    }
 }
