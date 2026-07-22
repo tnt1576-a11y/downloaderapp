@@ -1,5 +1,10 @@
 package com.jonbo.downloader.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -9,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -21,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.jonbo.downloader.ShareAction
@@ -37,6 +44,8 @@ fun SettingsScreen(
     onMp3Audio: (Boolean) -> Unit,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -109,9 +118,46 @@ fun SettingsScreen(
                     Switch(checked = mp3Audio, onCheckedChange = onMp3Audio)
                 }
             }
+
+            item { SectionTitle("Contact") }
+            item {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            try {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(TELEGRAM_URL))
+                                )
+                            } catch (e: ActivityNotFoundException) {
+                                Toast.makeText(context, "No app can open this", Toast.LENGTH_SHORT)
+                                    .show()
+                            }
+                        }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Send,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Column(Modifier.padding(start = 14.dp)) {
+                        Text("Telegram")
+                        Text(
+                            TELEGRAM_HANDLE,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
         }
     }
 }
+
+private const val TELEGRAM_HANDLE = "@AmirAlirshn"
+private const val TELEGRAM_URL = "https://t.me/AmirAlirshn"
 
 @Composable
 private fun SectionTitle(text: String) {
