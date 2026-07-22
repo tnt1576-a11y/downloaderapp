@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.jonbo.downloader.download.HistoryEntry
+import com.jonbo.downloader.download.VideoInfoRepo
 import java.text.DateFormat
 import java.util.Date
 
@@ -224,6 +225,7 @@ private fun HistoryRow(
                 Text(
                     listOfNotNull(
                         entry.quality.takeIf { it.isNotBlank() },
+                        VideoInfoRepo.formatBytes(entry.sizeBytes),
                         DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(entry.savedAt)),
                     ).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,

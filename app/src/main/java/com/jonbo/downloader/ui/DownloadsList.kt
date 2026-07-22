@@ -53,6 +53,7 @@ import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.ImageRequest
 import com.jonbo.downloader.download.DownloadItem
+import com.jonbo.downloader.download.VideoInfoRepo
 import java.util.UUID
 import kotlin.math.roundToInt
 
@@ -310,11 +311,13 @@ private fun statusLine(item: DownloadItem): String = when (item.state) {
         item.stage == "Combining" -> "Combining video and audio…"
         item.stage == "Converting" -> "Converting to MP3…"
 
-        // e.g. "Video · 42% · 4.6MiB/s · 0:27 left" — the phase label is what stops a
-        // two-stream download (video, then audio) looking like it downloaded twice.
+        // e.g. "Video · 42% of 137 MB · 4.6 MB/s · 0:27 left" — the phase label is what stops
+        // a two-stream download (video, then audio) looking like it downloaded twice.
         else -> listOfNotNull(
             item.stage.takeIf { it.isNotBlank() },
-            "${item.progress.roundToInt()}%",
+            VideoInfoRepo.formatBytes(item.totalBytes)
+                ?.let { "${item.progress.roundToInt()}% of $it" }
+                ?: "${item.progress.roundToInt()}%",
             item.speed.takeIf { it.isNotBlank() },
             item.eta.takeIf { it.isNotBlank() && it != "00:00" }
                 ?.let { it.trimStart('0').let { t -> if (t.startsWith(":")) "0$t" else t } }
@@ -322,7 +325,11 @@ private fun statusLine(item: DownloadItem): String = when (item.state) {
         ).joinToString(" · ")
     }
 
-    DownloadItem.Status.DONE -> "Saved · tap to play"
+    DownloadItem.Status.DONE -> listOfNotNull(
+        "Saved",
+        VideoInfoRepo.formatBytes(item.sizeBytes),
+        "tap to play",
+    ).joinToString(" · ")
     DownloadItem.Status.CANCELLED -> "Cancelled"
     DownloadItem.Status.FAILED -> item.error?.takeIf { it.isNotBlank() } ?: "Failed"
 }

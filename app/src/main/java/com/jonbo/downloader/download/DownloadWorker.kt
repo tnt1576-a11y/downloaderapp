@@ -123,6 +123,8 @@ class DownloadWorker(
                 )
             }
 
+            // Read the size before publishing: MediaSaver moves the file out of the work dir.
+            val savedBytes = produced.length()
             val uri = MediaSaver.publish(applicationContext, produced, audioOnly)
 
             HistoryStore.add(
@@ -136,12 +138,19 @@ class DownloadWorker(
                     savedAt = System.currentTimeMillis(),
                     audioOnly = audioOnly,
                     quality = inputData.getString(KEY_LABEL).orEmpty(),
+                    sizeBytes = savedBytes,
                 ),
             )
 
             notifyFinished(uri)
 
-            Result.success(workDataOf(KEY_TITLE to title, KEY_URI to uri.toString()))
+            Result.success(
+                workDataOf(
+                    KEY_TITLE to title,
+                    KEY_URI to uri.toString(),
+                    KEY_SIZE to savedBytes,
+                )
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -246,6 +255,7 @@ class DownloadWorker(
                             KEY_SPEED to speed,
                             KEY_ETA to eta,
                             KEY_STAGE to stage,
+                            KEY_TOTAL to streamTotalBytes.toLong(),
                         )
                     )
 
@@ -331,6 +341,12 @@ class DownloadWorker(
         const val KEY_SPEED = "speed"
         const val KEY_ETA = "eta"
         const val KEY_STAGE = "stage"
+
+        /** Size of the stream currently transferring, while running. */
+        const val KEY_TOTAL = "total_bytes"
+
+        /** Size of the finished file, on success. */
+        const val KEY_SIZE = "size_bytes"
 
         private val SPEED = Regex("""\bat\s+([\d.]+)\s*([KMG]?)i?B/s""", RegexOption.IGNORE_CASE)
         private val SIZE = Regex("""\bof\s+~?([\d.]+)\s*([KMG]?)i?B\b""", RegexOption.IGNORE_CASE)

@@ -20,6 +20,8 @@ data class HistoryEntry(
     val savedAt: Long,
     val audioOnly: Boolean,
     val quality: String,
+    /** Size of the saved file. Zero for rows written before this was recorded. */
+    val sizeBytes: Long = 0,
 )
 
 /**
@@ -103,6 +105,7 @@ object HistoryStore {
                     savedAt = o.optLong("savedAt"),
                     audioOnly = o.optBoolean("audioOnly"),
                     quality = o.optString("quality"),
+                    sizeBytes = o.optLong("sizeBytes"),
                 )
             }.getOrNull()
         }
@@ -121,6 +124,7 @@ object HistoryStore {
                     put("savedAt", e.savedAt)
                     put("audioOnly", e.audioOnly)
                     put("quality", e.quality)
+                    put("sizeBytes", e.sizeBytes)
                 }
             )
         }

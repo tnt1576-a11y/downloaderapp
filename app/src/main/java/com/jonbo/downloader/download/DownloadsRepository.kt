@@ -33,6 +33,10 @@ data class DownloadItem(
     val eta: String,
     /** Which part is running: "Video", "Audio", "Combining", "Converting", or empty. */
     val stage: String,
+    /** Size of the stream currently transferring; 0 when not running. */
+    val totalBytes: Long,
+    /** Size of the finished file; 0 until it succeeds. */
+    val sizeBytes: Long,
     val state: Status,
     val uri: String?,
     val error: String?,
@@ -155,6 +159,8 @@ class DownloadsRepository(context: Context) {
             speed = info.progress.getString(DownloadWorker.KEY_SPEED).orEmpty(),
             eta = info.progress.getString(DownloadWorker.KEY_ETA).orEmpty(),
             stage = info.progress.getString(DownloadWorker.KEY_STAGE).orEmpty(),
+            totalBytes = info.progress.getLong(DownloadWorker.KEY_TOTAL, 0L),
+            sizeBytes = info.outputData.getLong(DownloadWorker.KEY_SIZE, 0L),
             state = when (info.state) {
                 WorkInfo.State.RUNNING -> DownloadItem.Status.RUNNING
                 WorkInfo.State.SUCCEEDED -> DownloadItem.Status.DONE
