@@ -248,13 +248,8 @@ private fun EngineCard(
             // rather than letting the user discover it as a mysterious failure.
             if (staleDays != null) {
                 Text(
-                    text = if (staleDays == Long.MAX_VALUE) {
-                        "Still on the copy bundled with the app. Sites change often — updating " +
-                            "is worth doing before anything else."
-                    } else {
-                        "This engine is about ${staleDays / 7} weeks old. If a site stops " +
-                            "working, update here first."
-                    },
+                    text = "This engine is about ${staleDays / 7} weeks old. If a site stops " +
+                        "working, update here first.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 8.dp),

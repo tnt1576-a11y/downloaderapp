@@ -25,6 +25,15 @@ object Ytdlp {
 
     private const val TAG = "Ytdlp"
 
+    /**
+     * The engine the APK itself carries. The wrapper library's own copy is from late 2025 and
+     * YouTube no longer serves it video; app/src/main/res/raw/ytdlp overrides that resource
+     * with this release, verified against yt-dlp's published SHA-256
+     * (495be29ff4d9d4e9be7eabdfef225221e5d5282e77f2f505abc6dca80349f3fd) before bundling.
+     * Keep this constant in step whenever that file is replaced.
+     */
+    const val BUNDLED_VERSION = "2026.07.04"
+
     private val initLock = Mutex()
 
     @Volatile
@@ -35,6 +44,7 @@ object Ytdlp {
         initLock.withLock {
             if (ready) return
             withContext(Dispatchers.IO) {
+                dropStaleExtraction(context)
                 YoutubeDL.getInstance().init(context)
                 FFmpeg.getInstance().init(context)
                 Log.i(TAG, "engine ready, yt-dlp ${installedVersion(context) ?: "(bundled)"}")
@@ -46,6 +56,28 @@ object Ytdlp {
     /** Whatever yt-dlp we last pulled, or null when we're still on the APK's bundled copy. */
     fun installedVersion(context: Context): String? =
         runCatching { YoutubeDL.getInstance().version(context) }.getOrNull()
+
+    /**
+     * The library only extracts its bundled engine when the target folder is missing, so an
+     * install that upgraded from an older APK would keep running the old copy it extracted
+     * back then. When the APK's bundled version changes and the user has never run the
+     * updater (which writes a version), drop the old extraction so init unpacks the new one.
+     * An engine the updater installed is left alone — it's at least this new.
+     */
+    private fun dropStaleExtraction(context: Context) {
+        val prefs = context.getSharedPreferences("engine", Context.MODE_PRIVATE)
+        if (prefs.getString(KEY_EXTRACTED_FOR, null) == BUNDLED_VERSION) return
+
+        if (installedVersion(context) == null) {
+            runCatching {
+                java.io.File(context.noBackupFilesDir, "youtubedl-android/yt-dlp")
+                    .deleteRecursively()
+            }.onFailure { Log.w(TAG, "could not drop stale engine extraction", it) }
+        }
+        prefs.edit().putString(KEY_EXTRACTED_FOR, BUNDLED_VERSION).apply()
+    }
+
+    private const val KEY_EXTRACTED_FOR = "bundled_extracted_for"
 
     /**
      * Whether the ffmpeg binary yt-dlp shells out to is actually present. Without it yt-dlp

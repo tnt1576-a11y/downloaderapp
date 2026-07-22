@@ -84,7 +84,9 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     init {
-        engineVersion = Ytdlp.installedVersion(app)
+        // No recorded version means the engine is the copy shipped inside this APK,
+        // which has a known version — so staleness can be judged for it too.
+        engineVersion = Ytdlp.installedVersion(app) ?: "${Ytdlp.BUNDLED_VERSION} (bundled)"
         refreshStaleness()
         HistoryStore.load(app)
         // ffmpegStatus waits for init, so it has to run off the main thread.
@@ -97,13 +99,9 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun refreshStaleness() {
-        // The bundled engine has no recorded version, and is by definition the oldest one.
+        // engineAgeDays finds the YYYY.MM.DD inside the string, so "(bundled)" suffixes are fine.
         val age = Ytdlp.engineAgeDays(engineVersion)
-        engineStaleDays = when {
-            engineVersion == null -> Long.MAX_VALUE
-            age != null && age > STALE_AFTER_DAYS -> age
-            else -> null
-        }
+        engineStaleDays = age?.takeIf { it > STALE_AFTER_DAYS }
     }
 
     fun deleteHistoryEntry(entry: HistoryEntry, alsoFile: Boolean) {
