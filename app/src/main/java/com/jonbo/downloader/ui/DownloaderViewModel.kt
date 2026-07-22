@@ -134,15 +134,18 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
                 is Ytdlp.UpdateResult.Updated -> {
                     engineVersion = result.version
                     refreshStaleness()
-                    if (result.verified) {
-                        "Updated to ${result.version ?: "latest"} · checksum verified"
-                    } else {
-                        "Updated to ${result.version ?: "latest"}, but the checksum could not " +
-                            "be verified against yt-dlp's published list."
-                    }
+                    "Updated to ${result.version ?: "latest"} · checksum verified"
                 }
 
                 Ytdlp.UpdateResult.AlreadyCurrent -> "Already up to date"
+
+                is Ytdlp.UpdateResult.Rejected -> {
+                    // The bundled engine is back in place, so reflect that.
+                    engineVersion = "${Ytdlp.BUNDLED_VERSION} (bundled)"
+                    refreshStaleness()
+                    result.reason
+                }
+
                 is Ytdlp.UpdateResult.Failed -> "Update failed: ${result.message}"
             }
             engineDetail = Ytdlp.ffmpegStatus(getApplication())

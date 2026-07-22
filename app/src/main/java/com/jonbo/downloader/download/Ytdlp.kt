@@ -2,6 +2,7 @@ package com.jonbo.downloader.download
 
 import android.content.Context
 import android.util.Log
+import com.jonbo.downloader.R
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.Dispatchers
@@ -53,8 +54,20 @@ object Ytdlp {
         }
     }
 
-    /** Whatever yt-dlp we last pulled, or null when we're still on the APK's bundled copy. */
+    private fun enginePrefs(context: Context) =
+        context.getSharedPreferences("engine", Context.MODE_PRIVATE)
+
+    /**
+     * The engine we last installed *and verified*, or null when the APK's own bundled copy is
+     * what's running. Deliberately our own record rather than the library's: the library
+     * writes its version whether or not anything checked the bytes, so trusting it would let
+     * an unverified binary present itself as installed.
+     */
     fun installedVersion(context: Context): String? =
+        enginePrefs(context).getString(KEY_VERIFIED, null)
+
+    /** What the library thinks is installed — used only to decide about re-extraction. */
+    private fun libraryReportedVersion(context: Context): String? =
         runCatching { YoutubeDL.getInstance().version(context) }.getOrNull()
 
     /**
@@ -65,19 +78,21 @@ object Ytdlp {
      * An engine the updater installed is left alone — it's at least this new.
      */
     private fun dropStaleExtraction(context: Context) {
-        val prefs = context.getSharedPreferences("engine", Context.MODE_PRIVATE)
+        val prefs = enginePrefs(context)
         if (prefs.getString(KEY_EXTRACTED_FOR, null) == BUNDLED_VERSION) return
 
-        if (installedVersion(context) == null) {
+        // Only wipe when nothing newer was deliberately installed. Checking both records
+        // avoids downgrading someone who updated before this app tracked its own version.
+        if (installedVersion(context) == null && libraryReportedVersion(context) == null) {
             runCatching {
-                java.io.File(context.noBackupFilesDir, "youtubedl-android/yt-dlp")
-                    .deleteRecursively()
+                File(context.noBackupFilesDir, "youtubedl-android/yt-dlp").deleteRecursively()
             }.onFailure { Log.w(TAG, "could not drop stale engine extraction", it) }
         }
         prefs.edit().putString(KEY_EXTRACTED_FOR, BUNDLED_VERSION).apply()
     }
 
     private const val KEY_EXTRACTED_FOR = "bundled_extracted_for"
+    private const val KEY_VERIFIED = "verified_version"
 
     /**
      * Whether the ffmpeg binary yt-dlp shells out to is actually present. Without it yt-dlp
@@ -95,8 +110,12 @@ object Ytdlp {
     }
 
     sealed interface UpdateResult {
-        data class Updated(val version: String?, val verified: Boolean) : UpdateResult
+        /** Installed and checksum-verified. There is no unverified success case. */
+        data class Updated(val version: String?) : UpdateResult
         data object AlreadyCurrent : UpdateResult
+
+        /** Downloaded but failed verification; it was discarded and the bundle restored. */
+        data class Rejected(val reason: String) : UpdateResult
         data class Failed(val message: String) : UpdateResult
     }
 
@@ -115,76 +134,108 @@ object Ytdlp {
         }.getOrNull()
     }
 
-    /**
-     * Checks the freshly written binary against the SHA-256 that yt-dlp publishes for that
-     * release.
-     *
-     * The wrapper downloads over HTTPS but verifies nothing, so a corrupted or substituted
-     * binary would simply be executed. yt-dlp publishes SHA2-256SUMS (and signatures) for every
-     * release, and this compares against that. Returns null when it matches, otherwise a
-     * description of what went wrong.
-     */
-    private fun verifyAgainstUpstream(context: Context, version: String?): String? {
-        if (version.isNullOrBlank()) return "no version reported"
+    /** Where the engine binary lives once unpacked or updated. */
+    private fun binaryFile(context: Context) =
+        File(context.noBackupFilesDir, "youtubedl-android/yt-dlp/yt-dlp")
 
-        val binary = File(context.noBackupFilesDir, "youtubedl-android/yt-dlp/yt-dlp")
-        if (!binary.exists()) return "downloaded binary not found"
-
-        val expected = runCatching {
-            val url = URL("https://github.com/yt-dlp/yt-dlp/releases/download/$version/SHA2-256SUMS")
-            (url.openConnection() as HttpURLConnection).run {
-                connectTimeout = 15_000
-                readTimeout = 15_000
-                inputStream.bufferedReader().use { it.readText() }
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { stream ->
+            val buffer = ByteArray(1 shl 16)
+            while (true) {
+                val read = stream.read(buffer)
+                if (read <= 0) break
+                digest.update(buffer, 0, read)
             }
-        }.getOrElse { return "could not fetch upstream checksums (${it.message})" }
-            .lineSequence()
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    /** The SHA-256 yt-dlp publishes for the `yt-dlp` asset of a release, or null. */
+    private fun upstreamSha256(version: String): String? = runCatching {
+        val url = URL("https://github.com/yt-dlp/yt-dlp/releases/download/$version/SHA2-256SUMS")
+        val body = (url.openConnection() as HttpURLConnection).run {
+            connectTimeout = 15_000
+            readTimeout = 15_000
+            inputStream.bufferedReader().use { it.readText() }
+        }
+        body.lineSequence()
             .map { it.trim() }
             .firstOrNull { it.endsWith(" yt-dlp") }
             ?.substringBefore(' ')
-            ?: return "upstream checksums did not list yt-dlp"
+    }.getOrNull()
 
-        val actual = MessageDigest.getInstance("SHA-256").let { digest ->
-            binary.inputStream().use { stream ->
-                val buffer = ByteArray(1 shl 16)
-                while (true) {
-                    val read = stream.read(buffer)
-                    if (read <= 0) break
-                    digest.update(buffer, 0, read)
-                }
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
+    /**
+     * Overwrites the engine with the copy compiled into this APK, whose hash was checked
+     * against upstream before it was bundled. Used to undo an update we could not verify,
+     * so a rejected download is never left sitting there to be executed.
+     */
+    private fun restoreBundled(context: Context): Boolean = runCatching {
+        val target = binaryFile(context)
+        target.parentFile?.mkdirs()
+        context.resources.openRawResource(R.raw.ytdlp).use { input ->
+            target.outputStream().use { output -> input.copyTo(output) }
         }
-
-        return if (actual.equals(expected, ignoreCase = true)) {
-            null
-        } else {
-            "checksum mismatch (expected ${expected.take(12)}…, got ${actual.take(12)}…)"
-        }
+        target.setExecutable(true, false)
+        enginePrefs(context).edit().remove(KEY_VERIFIED).apply()
+        true
+    }.getOrElse {
+        Log.e(TAG, "could not restore the bundled engine", it)
+        false
     }
 
     /**
-     * Downloads the latest yt-dlp release and replaces the bundled engine.
+     * Downloads the latest yt-dlp, then keeps it only if it matches the SHA-256 that yt-dlp
+     * publishes for that release.
      *
-     * This is the one action in the app that fetches code and then executes it, and the library
-     * does NOT verify a signature or checksum on the download (transport is HTTPS to GitHub).
-     * It is therefore deliberately user-initiated only — never called on launch.
+     * The wrapper library downloads over HTTPS and verifies nothing, so a corrupted or
+     * substituted binary would simply be executed. yt-dlp publishes SHA2-256SUMS for every
+     * release, so there is a published digest to check against — and this fails closed: if the
+     * digest doesn't match, or can't be fetched at all, the download is discarded and the
+     * engine bundled in the APK is put back. A version is only ever recorded as installed
+     * after it has been verified.
      */
     suspend fun update(context: Context): UpdateResult {
         ensureReady(context)
         return withContext(Dispatchers.IO) {
             try {
                 val status = YoutubeDL.getInstance().updateYoutubeDL(context)
-                val version = installedVersion(context)
-                Log.i(TAG, "yt-dlp update: $status -> $version")
                 if (status?.name == "ALREADY_UP_TO_DATE") {
-                    UpdateResult.AlreadyCurrent
-                } else {
-                    // The library verifies nothing about what it just downloaded, so do it here.
-                    val problem = verifyAgainstUpstream(context, version)
-                    if (problem != null) Log.w(TAG, "engine verification: $problem")
-                    UpdateResult.Updated(version, verified = problem == null)
+                    return@withContext UpdateResult.AlreadyCurrent
                 }
+
+                val version = runCatching { YoutubeDL.getInstance().version(context) }.getOrNull()
+                val binary = binaryFile(context)
+
+                if (version.isNullOrBlank() || !binary.exists()) {
+                    restoreBundled(context)
+                    return@withContext UpdateResult.Rejected(
+                        "The update did not report a version, so it could not be verified."
+                    )
+                }
+
+                val expected = upstreamSha256(version)
+                if (expected == null) {
+                    restoreBundled(context)
+                    return@withContext UpdateResult.Rejected(
+                        "Could not reach yt-dlp's published checksums for $version, so the " +
+                            "download was discarded rather than trusted."
+                    )
+                }
+
+                val actual = sha256(binary)
+                if (!actual.equals(expected, ignoreCase = true)) {
+                    Log.e(TAG, "engine checksum mismatch: expected $expected, got $actual")
+                    restoreBundled(context)
+                    return@withContext UpdateResult.Rejected(
+                        "The downloaded engine did not match yt-dlp's published checksum. It " +
+                            "has been discarded and the bundled engine restored."
+                    )
+                }
+
+                Log.i(TAG, "yt-dlp $version verified against upstream SHA-256")
+                enginePrefs(context).edit().putString(KEY_VERIFIED, version).apply()
+                UpdateResult.Updated(version)
             } catch (e: Exception) {
                 Log.w(TAG, "yt-dlp update failed", e)
                 UpdateResult.Failed(e.message?.lineSequence()?.firstOrNull()?.take(200) ?: "Failed")

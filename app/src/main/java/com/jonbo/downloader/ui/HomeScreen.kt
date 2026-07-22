@@ -292,9 +292,9 @@ private fun EngineCard(
                 Text(
                     "This downloads the latest yt-dlp from GitHub over HTTPS and runs it in " +
                         "place of the copy bundled in the app.\n\n" +
-                        "The download is not signature- or checksum-verified, so this is the " +
-                        "one action here that fetches code and then executes it. Nothing is " +
-                        "downloaded unless you confirm."
+                        "It is checked against the SHA-256 that yt-dlp publishes for that " +
+                        "release. If it doesn't match, or the checksums can't be reached, the " +
+                        "download is discarded and the bundled engine is put back."
                 )
             },
             confirmButton = {
