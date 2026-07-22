@@ -19,9 +19,9 @@ class App : Application() {
         // Unpacking the python/ffmpeg payload takes a few seconds on first launch, so get it
         // out of the way immediately instead of making the first download wait for it.
         //
-        // Deliberately NOT calling yt-dlp's self-updater: it fetches a binary from GitHub with
-        // no signature or checksum check and then executes it. We only ever run the engine
-        // that shipped inside this APK. See the version pin in app/build.gradle.kts.
+        // Deliberately NOT calling yt-dlp's self-updater on launch: it fetches a binary from
+        // GitHub and runs it. Updating is a button, and what it downloads is checksum-verified
+        // against yt-dlp's published SHA-256 before it is kept. See Ytdlp.update.
         appScope.launch {
             runCatching { Ytdlp.ensureReady(this@App) }
         }

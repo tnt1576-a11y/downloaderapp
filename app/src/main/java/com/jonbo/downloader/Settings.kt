@@ -7,15 +7,35 @@ import kotlinx.coroutines.flow.StateFlow
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 /**
+ * A quality that can be applied to a video we haven't inspected yet.
+ *
+ * Everywhere the app knows the format list it builds exact selectors from it. These are for
+ * the cases where it doesn't — a shared link, or the entries of a playlist — so they are
+ * height caps that yt-dlp resolves per video, with a progressively looser fallback so a video
+ * that has nothing under the cap still downloads.
+ */
+enum class QualityPreset(
+    val label: String,
+    val selector: String,
+    val audioOnly: Boolean = false,
+) {
+    BEST("Best available", "bestvideo*+bestaudio/best"),
+    HD1080("Up to 1080p", "bestvideo*[height<=1080]+bestaudio/best[height<=1080]/best"),
+    HD720("Up to 720p", "bestvideo*[height<=720]+bestaudio/best[height<=720]/best"),
+    SD480("Up to 480p", "bestvideo*[height<=480]+bestaudio/best[height<=480]/best"),
+    AUDIO("Audio only", "bestaudio/best", audioOnly = true),
+}
+
+/**
  * What a shared link should do without opening a picker. [ASK] keeps the old behaviour of
  * showing the quality list; the rest start downloading straight away.
  */
-enum class ShareAction(val label: String, val selector: String?, val audioOnly: Boolean = false) {
+enum class ShareAction(val label: String, val preset: QualityPreset?) {
     ASK("Ask me each time", null),
-    BEST("Best quality", "bestvideo*+bestaudio/best"),
-    HD1080("Up to 1080p", "bestvideo*[height<=1080]+bestaudio/best[height<=1080]/best"),
-    HD720("Up to 720p", "bestvideo*[height<=720]+bestaudio/best[height<=720]/best"),
-    AUDIO("Audio only", "bestaudio/best", audioOnly = true),
+    BEST("Best quality", QualityPreset.BEST),
+    HD1080("Up to 1080p", QualityPreset.HD1080),
+    HD720("Up to 720p", QualityPreset.HD720),
+    AUDIO("Audio only", QualityPreset.AUDIO),
 }
 
 /**

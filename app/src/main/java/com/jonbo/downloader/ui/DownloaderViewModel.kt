@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.jonbo.downloader.QualityPreset
 import com.jonbo.downloader.Settings
 import com.jonbo.downloader.Source
 import com.jonbo.downloader.download.DownloadItem
@@ -229,13 +230,19 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun single(target: String, resolved: Source?) =
         VideoInfoRepo.fetch(getApplication(), target, resolved ?: Source.YOUTUBE)
 
-    /** Queues every entry in a playlist at best quality. */
-    fun downloadPlaylist(details: PlaylistDetails) {
+    /**
+     * Queues every entry in a playlist at the chosen quality.
+     *
+     * Entries come from a flat listing and carry no format list, so this uses a height-capped
+     * preset that yt-dlp resolves per video rather than a specific format id.
+     */
+    fun downloadPlaylist(details: PlaylistDetails, preset: QualityPreset) {
         val option = QualityOption(
-            label = "Best available",
+            label = preset.label,
             detail = "",
-            selector = "bestvideo*+bestaudio/best",
-            needsMerge = true,
+            selector = preset.selector,
+            needsMerge = !preset.audioOnly,
+            audioOnly = preset.audioOnly,
         )
         details.entries.forEach { entry ->
             repo.enqueue(entry.url, entry.title, option, entry.thumbnail, settings.mp3Audio.value)
@@ -258,8 +265,7 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
      * and reports true so the caller can stay out of the way.
      */
     fun quickDownload(link: String, source: Source?): Boolean {
-        val action = settings.shareAction.value
-        val selector = action.selector ?: return false
+        val preset = settings.shareAction.value.preset ?: return false
 
         viewModelScope.launch {
             val details = runCatching {
@@ -270,11 +276,11 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
                 url = link,
                 title = details?.title ?: "Video",
                 option = QualityOption(
-                    label = action.label,
+                    label = preset.label,
                     detail = "",
-                    selector = selector,
-                    needsMerge = !action.audioOnly,
-                    audioOnly = action.audioOnly,
+                    selector = preset.selector,
+                    needsMerge = !preset.audioOnly,
+                    audioOnly = preset.audioOnly,
                     expectsAudio = details?.hasAudio ?: true,
                 ),
                 thumbnail = details?.thumbnail,

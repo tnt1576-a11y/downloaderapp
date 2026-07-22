@@ -1,6 +1,7 @@
 package com.jonbo.downloader.download
 
 import android.content.Context
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
@@ -11,6 +12,7 @@ import androidx.work.workDataOf
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /** Everything needed to run a download again, recovered from the work's tags. */
 data class DownloadRequest(
@@ -72,6 +74,10 @@ class DownloadsRepository(context: Context) {
             .setConstraints(
                 Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
             )
+            // Queued items retry until the single download slot frees. Linear/10s keeps a
+            // playlist moving; the default exponential backoff starts at 30s and doubles,
+            // which would leave the tail of a long queue idle for many minutes.
+            .setBackoffCriteria(BackoffPolicy.LINEAR, 10, TimeUnit.SECONDS)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .addTag(DownloadWorker.TAG_DOWNLOAD)
             // WorkInfo exposes tags but not input data, so the details we need for ordering

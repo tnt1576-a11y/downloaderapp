@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +30,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,7 +41,10 @@ import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +52,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.jonbo.downloader.QualityPreset
 import com.jonbo.downloader.Source
 import com.jonbo.downloader.extractUrl
 import com.jonbo.downloader.download.DownloadItem
@@ -70,7 +77,7 @@ fun DownloadScreen(
     onRetry: (DownloadItem) -> Unit,
     onClearFinished: () -> Unit,
     onTryAnyway: () -> Unit,
-    onDownloadPlaylist: (PlaylistDetails) -> Unit,
+    onDownloadPlaylist: (PlaylistDetails, QualityPreset) -> Unit,
     onBack: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
@@ -239,9 +246,21 @@ private fun UnsupportedCard(message: String, onTryAnyway: () -> Unit) {
     }
 }
 
-/** A playlist link: offer the whole thing at once rather than one video. */
+/**
+ * A playlist link: offer the whole thing at once rather than one video.
+ *
+ * The quality is chosen once for the batch. Entries come from a flat listing with no format
+ * information, so there is no per-video ladder to show — picking a cap here is the difference
+ * between a few gigabytes and a few dozen.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PlaylistCard(details: PlaylistDetails, onDownloadAll: (PlaylistDetails) -> Unit) {
+private fun PlaylistCard(
+    details: PlaylistDetails,
+    onDownloadAll: (PlaylistDetails, QualityPreset) -> Unit,
+) {
+    var preset by remember { mutableStateOf(QualityPreset.BEST) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -257,8 +276,7 @@ private fun PlaylistCard(details: PlaylistDetails, onDownloadAll: (PlaylistDetai
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                "${details.entries.size} videos · they'll download one after another at best " +
-                    "quality",
+                "${details.entries.size} videos · they'll download one after another",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
@@ -281,15 +299,31 @@ private fun PlaylistCard(details: PlaylistDetails, onDownloadAll: (PlaylistDetai
                 )
             }
 
+            Text(
+                "Quality for all ${details.entries.size}",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(top = 14.dp, bottom = 2.dp),
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                QualityPreset.entries.forEach { option ->
+                    FilterChip(
+                        selected = preset == option,
+                        onClick = { preset = option },
+                        label = { Text(option.label.removePrefix("Up to ")) },
+                    )
+                }
+            }
+
             Button(
-                onClick = { onDownloadAll(details) },
+                onClick = { onDownloadAll(details, preset) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 12.dp),
             ) {
                 Icon(Icons.Default.Download, contentDescription = null)
                 Text(
-                    "Download all ${details.entries.size}",
+                    "Download all ${details.entries.size} · ${preset.label}",
                     modifier = Modifier.padding(start = 8.dp),
                 )
             }

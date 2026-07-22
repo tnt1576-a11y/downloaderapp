@@ -84,6 +84,17 @@ class DownloadWorker(
             ?: return Result.failure(workDataOf(KEY_ERROR to "Missing link"))
         val selector = inputData.getString(KEY_SELECTOR) ?: "best"
 
+        // One download at a time. Queueing a playlist enqueues every entry at once, and
+        // WorkManager will happily run a dozen in parallel — which fired a dozen yt-dlp
+        // processes at YouTube simultaneously and earned an HTTP 429 plus a bot check for the
+        // whole batch. Anything that can't get the slot asks to be retried rather than
+        // waiting, so it releases its worker instead of holding a foreground slot idle, and
+        // one failing video never blocks the rest of the queue.
+        if (!downloadSlot.tryAcquire()) {
+            Log.d(TAG, "another download holds the slot; retrying $title later")
+            return Result.retry()
+        }
+
         setForeground(foregroundInfo(0f))
 
         val workDir = File(applicationContext.cacheDir, "downloads/$id").apply { mkdirs() }
@@ -137,6 +148,7 @@ class DownloadWorker(
             Log.e(TAG, "Download failed for $url", e)
             Result.failure(workDataOf(KEY_TITLE to title, KEY_ERROR to friendlyError(e)))
         } finally {
+            downloadSlot.release()
             workDir.deleteRecursively()
             notifier.cancel(notificationId)
         }
@@ -312,6 +324,9 @@ class DownloadWorker(
 
     companion object {
         private const val TAG = "DownloadWorker"
+
+        /** Process-wide: only one yt-dlp download may run at a time. */
+        private val downloadSlot = java.util.concurrent.Semaphore(1)
 
         const val KEY_SPEED = "speed"
         const val KEY_ETA = "eta"
